@@ -1,6 +1,10 @@
 # Created by https://www.toptal.com/developers/gitignore/api/r,latex
 # Edit at https://www.toptal.com/developers/gitignore?templates=r,latex
 
+### PDF ###
+.pdf
+
+
 ### LaTeX ###
 ## Core latex/pdflatex auxiliary files:
 *.aux
