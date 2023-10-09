@@ -5,6 +5,10 @@
 *.pdf
 
 
+### Pictures ###
+*.jpeg
+
+
 ### LaTeX ###
 ## Core latex/pdflatex auxiliary files:
 *.aux
