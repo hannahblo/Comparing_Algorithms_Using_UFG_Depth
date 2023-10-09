@@ -1,0 +1,17 @@
+Performance measures
+
+- area under the roc curve
+- average cost
+- f measure
+- kappa
+- kb relative information score
+- mean absolute error
+- mean priori abslute error
+- precision
+- predictive accuracy
+- priori entropy
+- recall
+- relative absolute error
+- root mean prior squared error
+- root mean squared error 
+- root relative squared error
