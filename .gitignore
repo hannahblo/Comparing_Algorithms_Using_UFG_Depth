@@ -2,7 +2,7 @@
 # Edit at https://www.toptal.com/developers/gitignore?templates=r,latex
 
 ### PDF ###
-.pdf
+*.pdf
 
 
 ### LaTeX ###
