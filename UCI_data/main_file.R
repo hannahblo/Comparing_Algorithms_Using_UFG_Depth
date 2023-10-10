@@ -119,6 +119,8 @@ table_res_brier = full_res  %>% group_by(metric, dataset, method) %>%
 output_brier    = dcast(table_res_brier,dataset~method)
 output_brier = cbind(rep("brier_score", 16), output_brier)
 colnames(output_brier)[1] = "metric"
+# brier score umdrehen dest kleiner desto besser
+
 
 table_res_auc = full_res  %>% group_by(metric, dataset, method) %>%
   filter(metric == "auc") %>% summarise(mu = mean(val)) %>% ungroup()
@@ -134,6 +136,12 @@ colnames(output_acc)[1] = "metric"
 
 output = rbind(output_brier, output_acc, output_auc)
 dim(output)
+
+
+# Brier Score needs to be switched
+index_brier <- which(output$metric == "brier_score")
+output[, seq(3,10)] <- 1 - output[, seq(3, 10)]
+
 # View(output)
 
 
@@ -284,6 +292,7 @@ union_edges <- Reduce("|", list_graph) * 1
 edge_exists_index <- setdiff(which(union_edges == 1), c(1, 10, 19, 28, 37, 47, 55, 64))
 
 
+length(edge_exists_index)
 poset_list <- list()
 for (cardinality in seq(1, length(edge_exists_index))) { # only needs a few seconds
   print(paste0("We are at cardinality ", cardinality))
