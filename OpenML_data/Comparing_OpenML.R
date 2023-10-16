@@ -14,7 +14,7 @@
 # install.packages("devtools")
 # devtools::install_github("schollmeyer/oofos")
 
-### All the other R-packages are on CRAN packages (07.02.2023)
+### All the other R-packages are on CRAN (07.02.2023)
 
 library(ddandrda)
 library(oofos)
@@ -78,53 +78,8 @@ get_weighted_representation <- function(x, y = rep(1, dim(x)[1])) {
 }
 
 
-#' Test if new observation lies in conclusion based on nominal scaling
-#'
-#' @description Based on nominal scaling this function tests if a further
-#' object lies in the conclusion of a premise
-#'
-#' @param subset (vector of (0,1)): 1 represents that the point is within the
-#' subset
-#' @param obj_porder_obs (nominal): observation to test if lies in conclusion
-#' @param info_list (containing data_values): nominal attribute of each
-#' observation  (same length as premise)
-#'
-#' @return logical value. TRUE if obj_nominal_obs lies in the conclusion, else
-#' FALSE is returened
-test_porder_in_concl <- function(subset, obj_porder_obs,
-                                 info_list = NULL) {
-  number_item <- dim(subset[[1]])[[1]]
-  subset_intersect <- 1 * Reduce("&", subset,
-                                 init = matrix(1,
-                                               nrow = number_item,
-                                               ncol = number_item
-                                 )
-  )
-  subset_union <- 1 * Reduce("|", subset,
-                             init = matrix(0,
-                                           nrow = number_item,
-                                           ncol = number_item
-                             )
-  )
-
-  number_obj_porder <- length(obj_porder_obs)
-
-  in_conclusion <- rep(FALSE, length(obj_porder_obs))
-
-  for (index_obj_porder in seq_along(1:number_obj_porder)) {
-    if (all(subset_intersect <= obj_porder_obs[[index_obj_porder]]) &&
-        all(obj_porder_obs[[index_obj_porder]] <= subset_union)) {
-      in_conclusion[index_obj_porder] <- TRUE
-    }
-  }
-  return(in_conclusion)
-}
 
 
-#' Get Contingency Table
-convert_to_contigence_table <- function() {
-
-}
 
 ################################################################################
 # ML Data Set Preparation
@@ -188,7 +143,10 @@ if (length(which(is.na(data_final$data.id))) > 0) {
 ################################################################################
 # Data Set
 ################################################################################
-### filter data (man kann neue filter einfach in dem filter statement hinzuf?gen!)
+
+setwd("comptutation_results/")
+
+
 data_final_filter = data_final %>%
   group_by(data.id) %>%
   dplyr::mutate(count = n()) %>%
@@ -211,6 +169,8 @@ data_final_filter <- data_final_filter[order(data_final_filter$data.name), ]
 # length(data_set_unique)
 
 # We are only interested in the following performance measures
+
+# @ALL: Hier alle performance maße einfügen die euch interessieren!
 data_set_eval <- data_final_filter[, c("data.name", "learner.name",
                                        "f.measure", "predictive.accuracy",
                                        "area.under.roc.curve", # Brier Score
@@ -251,6 +211,8 @@ for (i in seq(1, length(unique(data_final_filter$data.name)))) {
 cont_table <- Reduce("+", list_mat_porders_ml)
 
 
+# @ALL: Hier können die Performance Measures in 2 Gruppen unterteilt werden
+
 # Above are the posets based on all considered performance measures. Now we
 # divide the performance measure and obtain for each set 80 posets
 
@@ -263,7 +225,7 @@ perform_measure_1 <- c("data.name", "learner.name",
 perform_measure_2 <- c("data.name", "learner.name",
                        "root.mean.squared.error",
                        "mean.absolute.error")
-# Note that kappa and kb.relative.information.score is ignored here
+# Note that kappa and kb.relative.information.score are ignored here
 
 list_mat_porders_ml_divi1 <- list()
 list_mat_porders_ml_divi2 <- list()
@@ -337,7 +299,6 @@ data_context <- get_weighted_representation(fc_ml_porder) # duplication
 n_row_context <- nrow(data_context$x_weighted)
 count_dup <- data_context$counts
 number_obs <- sum(data_context$counts)
-# TODO
 list_ml_porder_unique <- ddandrda::convert_context_to_list(data_context$x_weighted[ ,(1:25)],  complemented = FALSE)
 
 whole_context <- rbind(data_context$x_weighted, porder_all) # context of all posets
@@ -348,13 +309,15 @@ whole_context <- whole_context[index,]
 
 # Computation of S, see article (1)
 start_time <- Sys.time()
-ufg_premises <- oofos::enumerate_ufg_premises(whole_context, n_row_context) # das ist seltsam
+ufg_premises <- oofos::enumerate_ufg_premises(whole_context, n_row_context)
 total_time <- Sys.time() - start_time
 
 # saveRDS(total_time, "total_time.rds")
 # saveRDS(ufg_premises, "ufg_premises.rds")
 # length(ufg_premises)
 
+# TODO @Hannah in ddandrda programmieren. Das folgende braucht man doch öfters als gedacht
+# Insbesonder muss der ganze Code dazu angepasst werden
 
 # ufg depth computation
 emp_prob <- count_dup / number_obs
@@ -369,7 +332,7 @@ for (i in 1:length(ufg_premises)) {
   }
 
   prod_emp_ufg <- prod(emp_prob[index_premise])
-  concl_ufg <- test_porder_in_concl(list_ml_porder_unique[index_premise], list_ml_porder_unique) * 1
+  concl_ufg <- ddandrda::test_porder_in_concl(list_ml_porder_unique[index_premise], list_ml_porder_unique) * 1
 
   depth_ufg <- depth_ufg + concl_ufg * prod_emp_ufg
   constant_c <- constant_c + prod_emp_ufg
@@ -499,7 +462,7 @@ for (i in 1:length(ufg_premises)) {
   index_premise_all <- ufg_premises[[i]]
 
   prod_emp_ufg_all <- prod(emp_prob_all[index_premise_all])
-  concl_ufg_all <- test_porder_in_concl(list_ml_porder_unique[index_premise_all], list_porder_all) * 1
+  concl_ufg_all <- ddandrda::test_porder_in_concl(list_ml_porder_unique[index_premise_all], list_porder_all) * 1
 
   depth_ufg_all <- depth_ufg_all + concl_ufg_all * prod_emp_ufg_all
   constant_c_all <- constant_c_all + prod_emp_ufg_all
@@ -530,52 +493,19 @@ proportion_75
 ################################################################################
 
 ################################################################################
-# Analysis of different performance measures
-################################################################################
-perform_measure_1[-c(1,2)]
-perform_measure_2[-c(1,2)]
-
-library(measures)
-# https://cran.r-project.org/web/packages/measures/measures.pdf
-
-truth <- c(rep(0, 50), rep(1, 50))
-prediction <- runif(100)
-response <- ifelse(prediction > 0.5, 1, 0)
-positive <- 1
-negative <- 0
-measures::ACC(truth, response)
-measures::AUC(prediction, truth, negative, positive)
-measures::Brier(prediction, truth, negative, positive)
-measures::F1(truth, response, positive)
-measures::MAE(truth, response)
-
-
-
-
-## we are considering four different situations
-
-
-
-
-################################################################################
 # Descriptive analysis of existence of edges (Step 1: not with depth function)
 ################################################################################
 
 ### Which edge exists
-length(list_mat_porders_ml_divi1) # 80
-length(unique(list_mat_porders_ml_divi1)) # 58
-Reduce("|", list_mat_porders_ml_divi1)
-Reduce("&", list_mat_porders_ml_divi1)
-Reduce("+", list_mat_porders_ml_divi1)
+list_mat_interest <- list_mat_porders_ml_divi1 # list_mat_porders_ml_divi2
 
-length(list_mat_porders_ml_divi2) # 80
-length(unique(list_mat_porders_ml_divi2)) # 58
-Reduce("|", list_mat_porders_ml_divi2)
-Reduce("&", list_mat_porders_ml_divi2)
-Reduce("+", list_mat_porders_ml_divi2)
+length(list_mat_interest)
+length(unique(list_mat_interest))
+Reduce("|", list_mat_interest)
+Reduce("&", list_mat_interest)
+Reduce("+", list_mat_interest)
 
-
-edges <- Reduce("+", list_mat_porders_ml)
+edges <- Reduce("+", list_mat_interest)
 colnames(edges) <- rownames(edges) <- c("LR", "RF", "CART", "LASSO", "KNN")
 df_edge_exist <- melt(edges)
 df_edge_exist <- df_edge_exist[df_edge_exist$value != 0, ]
@@ -597,20 +527,17 @@ ggplot(df_edge_exist, aes(x = Var1, y = Var2)) +
 
 
 ################################################################################
-# Computation of the ufg-depth
+# Computation of the ufg-depths
 ################################################################################
+list_mat_interest <- list_mat_porders_ml_divi1 # list_mat_porders_ml_divi2
 
 ### Compute the VC dimension
 # Formal context given by the partial orders in list_mat
-fc_ml_porder_divi1 <- ddandrda::compute_conceptual_scaling(input_porder = list_mat_porders_ml_divi1)
-ml_porder_model_divi1 <- oofos::compute_extent_vc_dimension(fc_ml_porder_divi1)
-vc_fc_ml_porder_divi1 <- gurobi::gurobi(ml_porder_model_divi1)
-vc <- vc_fc_ml_porder_divi1$objval # 8
+fc_ml_porder_divi <- ddandrda::compute_conceptual_scaling(input_porder = list_mat_interest)
+ml_porder_model_divi <- oofos::compute_extent_vc_dimension(fc_ml_porder_divi)
+vc_fc_ml_porder_divi <- gurobi::gurobi(ml_porder_model_divi)
+vc <- vc_fc_ml_porder_divi$objval # 8
 
-fc_ml_porder_divi2 <- ddandrda::compute_conceptual_scaling(input_porder = list_mat_porders_ml_divi2)
-ml_porder_model_divi2 <- oofos::compute_extent_vc_dimension(fc_ml_porder_divi2)
-vc_fc_ml_porder_divi2 <- gurobi::gurobi(ml_porder_model_divi2)
-vc <- vc_fc_ml_porder_divi2$objval # 8
 
 
 
@@ -619,64 +546,67 @@ vc <- vc_fc_ml_porder_divi2$objval # 8
 porder_all <- ddandrda::compute_all_partial_orders(5, list = FALSE, complemented = TRUE)
 list_porder_all <- ddandrda::compute_all_partial_orders(5, list = TRUE, complemented = FALSE)
 
-data_context <- get_weighted_representation(fc_ml_porder) # duplication
-n_row_context <- nrow(data_context$x_weighted)
-count_dup <- data_context$counts
-number_obs <- sum(data_context$counts)
+data_context_divi <- get_weighted_representation(fc_ml_porder_divi) # duplication
+n_row_context_divi <- nrow(data_context_divi$x_weighted)
+count_dup_divi <- data_context_divi$counts
+number_obs_divi <- sum(data_context_divi$counts)
 
-list_ml_porder_unique <- ddandrda::convert_context_to_list(data_context$x_weighted[ ,(1:25)],  complemented = FALSE)
+list_ml_porder_unique_divi <- ddandrda::convert_context_to_list(data_context_divi$x_weighted[ ,(1:25)],  complemented = FALSE)
 
-whole_context <- rbind(data_context$x_weighted, porder_all) # context of all posets
-index <- which(!duplicated(whole_context))
-whole_context <- whole_context[index,]
+whole_context_divi <- rbind(data_context_divi$x_weighted, porder_all) # context of all posets
+index_divi <- which(!duplicated(whole_context_divi))
+whole_context_divi <- whole_context_divi[index_divi ,]
 
 
 
 # Computation of S, see article (1)
 start_time <- Sys.time()
-ufg_premises <- oofos::enumerate_ufg_premises(whole_context, n_row_context)
+ufg_premises_divi <- oofos::enumerate_ufg_premises(whole_context_divi, n_row_context_divi)
+# ufg_premises_divi2 <- oofos::enumerate_ufg_premises(whole_context_divi, n_row_context_divi)
 total_time <- Sys.time() - start_time
-
-# saveRDS(total_time, "total_time.rds")
-# saveRDS(ufg_premises, "ufg_premises.rds")
-# length(ufg_premises)
 
 
 # ufg depth computation
-emp_prob <- count_dup / number_obs
-depth_ufg <- rep(0, length(list_ml_porder_unique))
-constant_c <- 0
+emp_prob_divi <- count_dup_divi / number_obs_divi
+depth_ufg_divi <- rep(0, length(unlist(list(list_mat_porders_ml_divi1, list_mat_porders_ml_divi2), recursive = FALSE)))
+constant_c_divi <- 0
 
-for (i in 1:length(ufg_premises)) {
+for (i in 1:length(ufg_premises_divi)) {
   # print(paste0("Iteration ", i,  " of ", dim(ufg_premises)[1]))
-  index_premise <- ufg_premises[[i]]
+  index_premise <- ufg_premises_divi[[i]]
   if (length(index_premise) < 2) {
     print(paste0("cardinaltiy ufg_premise is ", length(index_premise)))
   }
 
-  prod_emp_ufg <- prod(emp_prob[index_premise])
-  concl_ufg <- test_porder_in_concl(list_ml_porder_unique[index_premise], list_ml_porder_unique) * 1
+  prod_emp_ufg <- prod(emp_prob_divi[index_premise])
+  concl_ufg <- ddandrda::test_porder_in_concl(list_ml_porder_unique_divi[index_premise],
+                                              obj_porder_obs = unlist(list(list_mat_porders_ml_divi1, list_mat_porders_ml_divi2), recursive = FALSE)) * 1
 
-  depth_ufg <- depth_ufg + concl_ufg * prod_emp_ufg
-  constant_c <- constant_c + prod_emp_ufg
+  depth_ufg_divi <- depth_ufg_divi + concl_ufg * prod_emp_ufg
+  constant_c_divi <- constant_c_divi + prod_emp_ufg
 }
 
-depth_value <- depth_ufg / constant_c
+depth_value_divi <- depth_ufg_divi / constant_c_divi
 
 
-# Adding duplicate values
-depth_value_all <- c()
-list_data_all <- vector("list", sum(count_dup))
-saving <- 1
-for (i in 1:length(depth_value)) {
-  for (j in 1:count_dup[i]) {
-    list_data_all[[saving]] <- list_ml_porder_unique[[i]]
-    saving <- saving + 1
-  }
-  depth_value_all <- append(depth_value_all, rep(depth_value[i], count_dup[i]))
+# # Adding duplicate values
+# depth_value_all_divi <- c()
+# list_data_all_divi <- vector("list", sum(count_dup_divi))
+# saving <- 1
+# for (i in 1:length(depth_value_divi)) {
+#   for (j in 1:count_dup[i]) {
+#     list_data_all_divi[[saving]] <- list_ml_porder_unique_divi[[i]]
+#     saving <- saving + 1
+#   }
+#   depth_value_all_divi <- append(depth_value_all_divi, rep(depth_value_divi[i], count_dup_divi[i]))
+#
+# }
 
-}
 
+depth_value_all_divi1 <- depth_value_divi
+# depth_value_all_divi2 <- depth_value_divi # oben anders setzen!!!
+
+plot(depth_value_all_divi1, depth_value_all_divi2)
 
 # saveRDS(constant_c, "constant_c.rds")
 # saveRDS(depth_ufg, "ufg_depth.rds")

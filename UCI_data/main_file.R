@@ -33,6 +33,7 @@ library(gurobi)
 library(utils)
 library(hasseDiagram)
 
+
 setwd("UCI_data/")
 
 
@@ -97,6 +98,73 @@ convert_to_rowbt <- function(list_graph) {
 }
 
 
+# this function is a help function for compute_upper_ufg_bound
+sumup_prop_set <- function(set, weight_constant = (1/16)) {
+  length_ufg <- lapply(X = set, FUN = function(x){length(x)})
+  sum <- sum(unlist(lapply(X = length_ufg, FUN = function(x) {prod(rep(1/16, x))})))
+  return(sum)
+}
+
+
+
+# fixed edges is a binary square matrix, needs to be rbind(c(row,col), c(row, col))
+compute_upper_ufg_bound <- function(fixed_edges, fixed_none_edges, further_edge,
+                                        depth_premises, constant_weight = (1/16)) {
+  # Sorting ufg premises
+  ufg_has_edge <- list()
+  ufg_has_no_edge <- list()
+
+  for (index_ufg in seq(1, depth_premises$total_number_premises)) {
+    ufg <-  depth_premises$ufg_premises[[index_ufg]]
+
+
+    if (all(Reduce("|", ufg)[rbind(fixed_edges, as.vector(further_edge))]) && (!(any(Reduce("&", ufg)[fixed_none_edges])))) {
+      ufg_has_edge <- append(ufg_has_edge, list(ufg))
+    }
+    if (all(Reduce("|", ufg)[fixed_edges]) && (!(any(Reduce("&", ufg)[rbind(fixed_none_edges, as.vector(further_edge))])))) {
+      ufg_has_no_edge <- append(ufg_has_no_edge, list(ufg))
+    }
+
+  }
+
+  # Computing lower and upper bound
+  upper_has_edge <- sumup_prop_set(ufg_has_edge) / depth_premises$constant_cn
+  upper_has_not_edge <- sumup_prop_set(ufg_has_no_edge) / depth_premises$constant_cn
+
+  return(list(fixed_edges = fixed_edges,
+              fixed_none_edges = fixed_none_edges,
+              further_edge = further_edge,
+              upper_has_edge = upper_has_edge,
+              upper_has_not_edge = upper_has_not_edge))
+
+}
+
+
+
+# Help Function which returns the cartesian product
+help_fct_cartesian <- function(x) {
+  result <- list()
+  for (i in seq(1, 8)) {
+    result <- append(result, list(c(x,i)))
+  }
+  return(result)
+}
+
+# This function computes the ufg of a poset where all ufg premises are already
+# computed
+compute_ufg_given_premises <- function(poset_interest, ufg, cn_constant,
+                                       constant_weight = (1/16)) {
+
+  depth <- 0
+  for (premises in ufg) {
+    if (all(ddandrda::test_porder_in_concl(premises, list(poset_interest)))) {
+      depth <- depth + prod(rep(1/16, length(premises)))
+    }
+  }
+  return(depth/cn_constant)
+}
+
+
 ################################################################################
 # Upload Algorithm Performances
 # The following code part as well as the performance evaluation was already done
@@ -140,7 +208,7 @@ dim(output)
 
 # Brier Score needs to be switched
 index_brier <- which(output$metric == "brier_score")
-output[, seq(3,10)] <- 1 - output[, seq(3, 10)]
+output[index_brier, seq(3,10)] <- 1 - output[index_brier, seq(3, 10)]
 
 # View(output)
 
@@ -180,16 +248,8 @@ Reduce("|", list_graph)
 Reduce("&", list_graph)
 Reduce("+", list_graph)
 
-duplicated(list_graph)
-index_duplicated <- which(duplicated(list_graph) == TRUE)
+duplicated(list_graph) # no duplications exist
 
-pdf("duplicates_in_observed.pdf", onefile = TRUE)
-for (i in 1:length(index_duplicated)) {
-  mat <- matrix(as.logical(list_graph[[i]]), ncol = 8)
-  colnames(mat) <- rownames(mat) <- colnames(list_graph[[i]])
-  hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
-}
-dev.off()
 
 pdf("all_observed.pdf", onefile = TRUE)
 for (i in 1:length(list_graph)) {
@@ -243,11 +303,11 @@ names_columns <- colnames(list_graph[[1]])
 # Since we consider here only 16 partial orders going through all subsets of
 # those 16 elements is faster than computing all posets with 8(!) items
 
-
 depth_premises <- ddandrda::compute_ufg_depth_porder(list_graph,
-                                            print_progress_text = FALSE,
-                                            save_ufg_premises = FALSE)
+                                            print_progress_text = TRUE,
+                                            save_ufg_premises = TRUE)
 
+max(depth_premises$depth_ufg) # [1] 0.31869
 
 ## All partial orders with depth larger than 0
 max_depth_index <- sort(depth_premises$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
@@ -264,7 +324,7 @@ dev.off()
 ## Intersections (high to low)
 max_depth_index <- sort(depth_premises$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
 pdf("plots_observed_intersect_from_highes.pdf", onefile = TRUE)
-for (i in 1:min(max_depth_index)) {
+for (i in 1:max(max_depth_index)) {
   intersect <- matrix(rep(TRUE, item_number * item_number), ncol = item_number)
   for (j in seq(1, i)) {
     intersect <- intersect & matrix(as.logical(list_graph[[max_depth_index[j]]]), ncol = item_number)
@@ -283,82 +343,213 @@ dev.off()
 # Nevertheless, we want to obtain the poset with highest depth value based on
 # ALL (not only observed posets). The number of all possible posets is
 # 431723379 (see: https://oeis.org/A001035)
-# We use that we immediatly get that some posets need to be zero. More precise
-# all posets with a depth larger than zero need to lie in the union of the edges
-# of all observed posets. Since not all edges are observed
-# (e.g. BoostedStumps < CART) we can reduced the posets to consider
+# We use that we immediately the Appendix of the corresponding article to get upper
+# bounds for posets which contain or do not contain a certain edge. Since via the
+# observed posets we already have a lower bound of the maximal ufg depth (max observed depth)
+# we can use this to determine already some edges if they lie in the poset with
+# maximal depth or not-
 
-union_edges <- Reduce("|", list_graph) * 1
-edge_exists_index <- setdiff(which(union_edges == 1), c(1, 10, 19, 28, 37, 47, 55, 64))
+# IMPORTANT: Please read the following lines before proceeding.
+# Line 366 to 440 gives the procedure to get all fixed edges (not edges). This code
+# must be run twice.
+# 1. In the first run, comment all code lines with comment: "comment out - Round 0"
+#    and run the code from line 366 to 440 once
+# 2. In the second step comment out all code lines with the comment "comment out - Round 1"
+#    and run again through the entire code form line 366 to 440
+#    Note that in Round 1 you also have to run the codes with te comment Round 0
+# These two rounds give you the entire computation
 
 
-length(edge_exists_index)
+
+
+
+###### Procedure: Check which edges are fixed by upper and lower bound discussions
+## START
+# Attention we overwrite the data frame
+df_upper_bounds <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(df_upper_bounds) <- c("fixed_edges", "fixed_none_edges", "further_edge", "upper_has_edge", "upper_has_not_edge")
+
+all_edges_fixed <- list(c(1,1), c(2,2), c(3,3), c(4,4), c(5,5), c(6,6), c(7,7), c(8,8) #  Round 0: due to reflexivity these edges need to be set
+                        # , c(2,1), c(2,4) # comment - Round 1
+                        )
+all_non_edges_fixed <- list(c(1,2), c(4,2), c(8,2) # Round 0: due to the heat map we can observe
+                            # that these edge were never observed and therefore every poset which has
+                            # this edge need to have depth zero
+                            # , c(1,3), c(1,6), c(1,8), c(3,2), c(3,6), c(5,2), c(5,3),  # comment out - Round 1
+                            # c(5,6), c(5,8), c(6,2), c(7,2)  # comment out - Round 1
+                            )
+
+row_col_interest <- unlist(lapply(seq_len(8), FUN = help_fct_cartesian), recursive = FALSE)
+row_col_interest <- row_col_interest[-c(1, 10, 19, 28, 37, 46, 55, 64)] # Round 0
+row_col_interest <- row_col_interest[-c(1, 23, 51)] # Round 0
+row_col_interest <- row_col_interest[-c(7, 9)] # comment out - Round 1
+row_col_interest <- row_col_interest[-c(1, 4, 6, 13, 16, 26, 27, 29, 31, 33, 40)] # comment out - Round 1
+# length(row_col_interest)
+
+
+# get lower bound of
+# Round 0: we take the maximal observed ufg depth as starting point
+max_depth_value <- max(depth_premises$depth_ufg)
+# Round 1: check if the poset where we only add all edges fixed has higher depth then
+# the one fixed at Round 0
+# No, it is below the observed max --> stay at the same observed max as Round 0
+# Note that indeed all_non_edges_fixed is true for observed max ufg depth
+# check_poset <- diag(8)
+# check_poset[rbind(c(2,1), c(2,4))] <- 1
+# check_poset <- ddandrda::compute_transitive_hull(check_poset)
+# check_poset # checken ob non edges fix passt
+# depth_premises_check <- ddandrda::compute_ufg_depth_porder(porder_observed = list_graph,
+#                                                            porder_depth = list(check_poset),
+#                                                            print_progress_text = FALSE,
+#                                                            save_ufg_premises = FALSE)
+# depth_premises_check$depth_ufg
+
+
+
+for (row_col_inner in row_col_interest) {
+  bounds <- compute_upper_ufg_bound(fixed_edges = t(matrix(unlist(all_edges_fixed), nrow  = 2)),
+                                        fixed_none_edges = t(matrix(unlist(all_non_edges_fixed), nrow  = 2)),
+                                        further_edge = row_col_inner,
+                                        depth_premises = depth_premises)
+  df_upper_bounds[nrow(df_upper_bounds) + 1, ] <- list(list(bounds$fixed_edges), list(bounds$fixed_none_edges),
+                                                       list(bounds$further_edge), bounds$upper_has_edge, bounds$upper_has_not_edge)
+}
+
+
+not_set_edge <- which(df_upper_bounds$upper_has_edge < max_depth_value)
+set_edge <- which(df_upper_bounds$upper_has_not_edge < max_depth_value)
+df_upper_bounds[not_set_edge, ]
+# The following edges are not set in the maximal depth, as these edges lead to a lower depth then
+# the current lower bound of max depth
+# length(not_set_edge)
+# for (i in not_set_edge) {print(df_upper_bounds[i, ]$further_edge)}
+# Round 0: c(1,3), c(1,6), c(1,8), c(3,2), c(3,6), c(5,2), c(5,3), c(5,6), c(5,8), c(6,2), c(7,2)  # in total 11
+# Round 1: empty
+df_upper_bounds[set_edge, ]
+# The following edges need to be set, else the depth value would be below the current max depth
+# Note that in each row I just add those which we did not fix befor
+# length(set_edge)
+# for (i in set_edge) {print(df_upper_bounds[i, ]$further_edge)}
+# Round 0: c(2,1), c(2,4) # in total 2
+# Round 1: empty
+
+
+## Thus, procedure ends after Round 1.
+
+###### Procedure: Check which edges are fixed by upper and lower bound discussions
+## END
+
+
+
+
+# Now we deleted obtained all edges/none edges which are fixed by the upper
+# and lower bound of the depth (see Appendix)
+
+sum(unlist(lapply(X = seq(1,52), FUN = function(x) {choose(40,x)}))) # still too large?
+
+poset_basic <- diag(8)
+poset_basic[rbind(c(2,1), c(2,4))] <- 1
+poset_basic <- ddandrda::compute_transitive_hull(poset_basic)
+
+edges_unclear <- unlist(lapply(seq_len(8), FUN = help_fct_cartesian), recursive = FALSE)
+edges_unclear <- edges_unclear[-c(1, 10, 19, 28, 37, 46, 55, 64)]
+edges_unclear <- edges_unclear[-c(1, 23, 51)]
+edges_unclear <- edges_unclear[-c(7, 9)]
+edges_unclear <- edges_unclear[-c(1, 4, 6, 13, 16, 26, 27, 29, 31, 33, 40)]
+
 poset_list <- list()
-for (cardinality in seq(1, length(edge_exists_index))) { # only needs a few seconds
-  print(paste0("We are at cardinality ", cardinality))
-  combinations <- utils::combn(x = edge_exists_index, m = cardinality,
-                               simplify = FALSE)
-  for (subset_index in combinations) {
-    poset <- diag(x = 1, nrow = 8)
-    poset[subset_index] <- 1
-    if (ddandrda::test_if_porder(poset)) {
-      poset_list <- append(poset_list, list(poset))
+depth_values_list <- list()
+
+# Note cardinality 1 to 7: no posets with higher depth than the observed one exists
+start_time <- Sys.time()
+for (card_sub in 1:40) {
+  # iterating over all subsets of size k (for fixed n)
+  # using Gosper's Hack
+  # see: http://programmingforinsomniacs.blogspot.com/2018/03/gospers-hack-explained.html
+  subset_binary <- c(rep(0, (length(edges_unclear) - card_sub)), rep(1, card_sub))
+  print(paste0("now at cardinality ", card_sub))
+  while (TRUE) {
+
+    poset_inner <- poset_basic
+    set_edges <- which(as.logical(subset_binary))
+    for (edge in set_edges) {
+      poset_inner[edges_unclear[[edge]][1], edges_unclear[[edge]][2]] <- 1
+    }
+    if (ddandrda::test_if_porder(poset_inner)) {
+      depth_inner <- compute_ufg_given_premises(poset_inner, ufg = depth_premises$ufg_premises,
+                                                cn_constant = depth_premises$constant_cn)
+      if (depth_inner >= max_depth_value) {
+        poset_list <- append(poset_list, list(poset_inner))
+        depth_value_list <- append(depth_value_list, list(depth_inner))
+      }
+    }
+
+    # switch to next subset or break while loop
+    if (all(subset_binary[seq(1, card_sub)] == rep(1, card_sub))) {
+      break
+    }
+    index_one <- which(subset_binary == 1)
+    max_one <- max(index_one)
+    max_zero_s_max_one <- max(
+      which(subset_binary == 0)[which(subset_binary == 0) < max_one])
+    subset_binary[c(max_zero_s_max_one, max_zero_s_max_one + 1)] <- c(1,0)
+    ones_larger <- index_one[index_one > max_zero_s_max_one + 1]
+    if (length(ones_larger) != 0) {
+      subset_binary[seq(min(ones_larger), length(edges_unclear))] <- 0
+      subset_binary[seq(length(edges_unclear) - length(ones_larger) + 1,
+                        length(edges_unclear))] <- rep(1, length(ones_larger))
     }
   }
 }
-
-
-length(poset_list)
-
-
-depth_poset_list <- ddandrda::compute_ufg_depth_porder(porder_observed = list_graph,
-                                                       porder_depth = poset_list,
-                                                       print_progress_text = FALSE) # needs a few seconds
+end_time <- Sys.time()
+end_time - start_time
 
 
 
-## Some pictures and vlaues
-print(paste0("The minimal value in list is ", min(depth_poset_list$depth_ufg), ". Note that the smalles value of ALL posets is 0."))
-print(paste0("The maximal value is ", max(depth_poset_list$depth_ufg)))
-#### mean, sd, distribution etc value are not meaningful as not all posets are considered!
-
-
-
-
-
-## All partial orders with depth larger than 0
-max_depth_index <- sort(depth_poset_list$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
-stop_print <- 100
-pdf("plots_all_from_highest_depth.pdf", onefile = TRUE)
-for (i in max_depth_index[seq(1,stop_print)]) {
-  mat <- matrix(as.logical(poset_list[[i]]), ncol = item_number)
-  colnames(mat) <- rownames(mat) <- names_columns
-  hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
-}
-dev.off()
-
-
-
-## Intersections (high to low)
-max_depth_index <- sort(depth_poset_list$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
-pdf("plots_all_intersect_from_highes.pdf", onefile = TRUE)
-stop_print <- 100
-for (i in 1:min(length(max_depth_index), stop_print)) {
-  intersect <- matrix(rep(TRUE, item_number * item_number), ncol = item_number)
-  for (j in seq(1, i)) {
-    intersect <- intersect & matrix(as.logical(poset_list[[max_depth_index[j]]]), ncol = item_number)
-  }
-  colnames(intersect) <- rownames(intersect) <- names_columns
-  # print(mat * 1)
-  # hasse(mat) plots the graph from top to bottom, with smallest value at bottom
-  # -> change and set arrow to "backward"
-  hasse(t(intersect), parameters = list(arrow = "backward", shape = "roundrect"))
-}
-dev.off()
-
-
-# minimal to maximal depth value does not make sense at this needs to contain all
-# zeros which lead directly to an empty poset.
+#
+#
+# ## Some pictures and vlaues
+# print(paste0("The minimal value in list is ", min(depth_poset_list$depth_ufg), ". Note that the smalles value of ALL posets is 0."))
+# print(paste0("The maximal value is ", max(depth_poset_list$depth_ufg)))
+# #### mean, sd, distribution etc value are not meaningful as not all posets are considered!
+#
+#
+#
+#
+#
+# ## All partial orders with depth larger than 0
+# max_depth_index <- sort(depth_poset_list$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
+# stop_print <- 100
+# pdf("plots_all_from_highest_depth.pdf", onefile = TRUE)
+# for (i in max_depth_index[seq(1,stop_print)]) {
+#   mat <- matrix(as.logical(poset_list[[i]]), ncol = item_number)
+#   colnames(mat) <- rownames(mat) <- names_columns
+#   hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
+# }
+# dev.off()
+#
+#
+#
+# ## Intersections (high to low)
+# max_depth_index <- sort(depth_poset_list$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
+# pdf("plots_all_intersect_from_highes.pdf", onefile = TRUE)
+# stop_print <- 100
+# for (i in 1:min(length(max_depth_index), stop_print)) {
+#   intersect <- matrix(rep(TRUE, item_number * item_number), ncol = item_number)
+#   for (j in seq(1, i)) {
+#     intersect <- intersect & matrix(as.logical(poset_list[[max_depth_index[j]]]), ncol = item_number)
+#   }
+#   colnames(intersect) <- rownames(intersect) <- names_columns
+#   # print(mat * 1)
+#   # hasse(mat) plots the graph from top to bottom, with smallest value at bottom
+#   # -> change and set arrow to "backward"
+#   hasse(t(intersect), parameters = list(arrow = "backward", shape = "roundrect"))
+# }
+# dev.off()
+#
+#
+# # minimal to maximal depth value does not make sense at this needs to contain all
+# # zeros which lead directly to an empty poset.
 
 
 
