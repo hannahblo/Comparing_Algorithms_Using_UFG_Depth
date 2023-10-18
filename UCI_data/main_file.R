@@ -447,6 +447,8 @@ df_upper_bounds[set_edge, ]
 
 sum(unlist(lapply(X = seq(1,52), FUN = function(x) {choose(40,x)}))) # still too large?
 
+max_depth_value <- max(depth_premises$depth_ufg)
+
 poset_basic <- diag(8)
 poset_basic[rbind(c(2,1), c(2,4))] <- 1
 poset_basic <- ddandrda::compute_transitive_hull(poset_basic)
