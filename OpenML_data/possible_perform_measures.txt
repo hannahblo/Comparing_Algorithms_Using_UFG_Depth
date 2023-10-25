@@ -13,5 +13,25 @@ Performance measures
 - recall
 - relative absolute error
 - root mean prior squared error
-- root mean squared error 
+- root mean squared error
 - root relative squared error
+
+
+Bezeichnungen in data_final
+
+- "area.under.roc.curve"
+- "average.cost"
+- "f.measure"
+- "kappa"
+- "kb.relative.information.score"
+- "mean.absolute.error"
+- "mean.prior.absolute.error"
+- "number.of.instances.x"
+- "precision"
+- "predictive.accuracy"
+- "prior.entropy"
+- "recall"
+- "relative.absolute.error"
+- "root.mean.prior.squared.error"
+- "root.mean.squared.error"
+- "root.relative.squared.error"

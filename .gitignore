@@ -8,6 +8,8 @@
 ### Pictures ###
 *.jpeg
 
+### txt ### Files
+*.txt
 
 ### LaTeX ###
 ## Core latex/pdflatex auxiliary files:
@@ -327,6 +329,9 @@ TSWLatexianTemp*
 # Session Data files
 .RData
 .RDataTmp
+
+# save of R files
+*.rds
 
 # User-specific files
 .Ruserdata
