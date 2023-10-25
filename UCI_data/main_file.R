@@ -5,9 +5,6 @@
 # Research,  24: 1 - 37.
 
 
-
-
-
 ################################################################################
 # R Session
 ################################################################################
@@ -29,9 +26,12 @@ library(gridExtra)
 library(stargazer)
 library(prefmod)
 library(ddandrda)
-library(gurobi)
+library(reshape2)
 library(utils)
-library(hasseDiagram)
+library(hasseDiagram) # For R versions >=3.5 do the following bevor installing hasseDiagramm:
+# install.packages("BiocManager")
+# BiocManager::install("Rgraphviz")
+
 
 
 setwd("UCI_data/")
@@ -184,7 +184,7 @@ full_res  = do.call('rbind', res_list)
 
 table_res_brier = full_res  %>% group_by(metric, dataset, method) %>%
   filter(metric == "brier_score") %>% summarise(mu = mean(val)) %>% ungroup()
-output_brier    = dcast(table_res_brier,dataset~method)
+output_brier  = reshape2::dcast(table_res_brier, dataset~method)
 output_brier = cbind(rep("brier_score", 16), output_brier)
 colnames(output_brier)[1] = "metric"
 # brier score umdrehen dest kleiner desto besser
@@ -192,13 +192,13 @@ colnames(output_brier)[1] = "metric"
 
 table_res_auc = full_res  %>% group_by(metric, dataset, method) %>%
   filter(metric == "auc") %>% summarise(mu = mean(val)) %>% ungroup()
-output_auc    = dcast(table_res_auc,dataset~method)
+output_auc    = reshape2::dcast(table_res_auc,dataset~method)
 output_auc = cbind(rep("auc", 16), output_auc)
 colnames(output_auc)[1] = "metric"
 
 table_res_acc = full_res  %>% group_by(metric, dataset, method) %>%
   filter(metric == "acc") %>% summarise(mu = mean(val)) %>% ungroup()
-output_acc    = dcast(table_res_acc,dataset~method)
+output_acc    = reshape2::dcast(table_res_acc,dataset~method)
 output_acc = cbind(rep("acc", 16), output_acc)
 colnames(output_acc)[1] = "metric"
 
@@ -446,6 +446,8 @@ df_upper_bounds[set_edge, ]
 # and lower bound of the depth (see Appendix)
 
 sum(unlist(lapply(X = seq(1,52), FUN = function(x) {choose(40,x)}))) # still too large?
+
+max_depth_value <- max(depth_premises$depth_ufg)
 
 poset_basic <- diag(8)
 poset_basic[rbind(c(2,1), c(2,4))] <- 1
