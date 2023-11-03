@@ -14,6 +14,7 @@
 # remove.packages("ddandrda")
 # install.packages("devtools")
 # devtools::install_github("hannahblo/ddandrda")
+library(ddandrda)
 
 ### All the other R-packages are on CRAN packages (06.10.2023)
 
@@ -25,16 +26,27 @@ library(forcats)
 library(gridExtra)
 library(stargazer)
 library(prefmod)
-library(ddandrda)
 library(reshape2)
 library(utils)
-library(hasseDiagram) # For R versions >=3.5 do the following bevor installing hasseDiagramm:
+library(hasseDiagram)
+# For R versions >=3.5 do the following before installing hasseDiagramm:
 # install.packages("BiocManager")
 # BiocManager::install("Rgraphviz")
+library(gurobi)
+# This is a commercial solver that offers a free academic licenses which can be
+# found here: https://www.gurobi.com/features/academic-named-user-license/ (accessed: 08.02.2023).
+# To install this package, please follow the instructions there
+# A documentation can be found here: https://www.gurobi.com/wp-content/plugins/hd_documentations/documentation/9.0/refman.pdf (page 643ff) (accessed: 08.02.2023).
 
 
 
 setwd("UCI_data/")
+
+
+# TODO
+# gurobi_model: warum numerisches Problem -> wie umgehen
+# warum testen ob wirklich poset ist
+# stimmt der Code? Kommt 20 mal das selbe poset bei mir raus
 
 
 ################################################################################
@@ -61,110 +73,206 @@ convert_to_matrix <- function(single_data_eval) {
   return(graph_mat)
 }
 
-# Function which converts a list of posets as matrices (see convert_to_matrix
-# function) to format needed for prefmod package (analogouse to prefmod::cemspc)
-convert_to_rowbt <- function(list_graph) {
 
-  number_cols <- nrow(list_graph[[1]]) * (nrow(list_graph[[1]]) - 1) / 2
-  model_comp <- rownames(list_graph[[1]])
-  col_names <- list()
-  for (i in 1:(length(model_comp) - 1)) {
-    for (j in (i + 1):length(model_comp)) {
-      col_names <- append(col_names, paste0(model_comp[i], ">", model_comp[j]))
+
+
+# this functions returns the gurobi model it is the basis of an MILP for
+# computing the poset (or a poset) with the highest depth
+define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
+
+  # Here, we define a gurobi model to compute the minimal and maximal depth values
+  # More Information about the Gurobi Model can be found here:
+  # https://www.gurobi.com/wp-content/plugins/hd_documentations/documentation/9.0/refman.pdf (page 643ff) (accessed: 08.02.2023).
+
+  # general information
+  n_items <- nrow((depth_premises$ufg_premises[[1]])[[1]]) # number of items
+
+  ## Step 1: Defining the constraint matrix. The constraint matrix must capture
+  # the following structure (included into the rows)
+  # 1. if p is an element of an ufg set in S, than it must be a superset of the
+  #     intersection
+  # 2. if p is an element of an ufg set in S, then the union must be subset of
+  #     the union od all elements in S
+  # 3. p must be a partial order --> antisymmetric
+  # 4. p must be a partial order --> transitive
+  # 5. p must be a partial order --> reflexive
+
+
+  # To achieve this, the columns of the constraint matrix are given by
+  # col_1. The first seq(1, number_of_premises) columns represent each (set) element of S
+  # col_2. the remaining rows represent the edges (or n_items^2 pairs of p)
+  # In part col_1 an element is 1 if and only if  we are currently looking at
+  # this element of Sscr
+
+
+
+  # Constraints 1:
+  # matrix for the constraints for the implications of the intersections:
+  # If (a,b) is in the intersection of an ufg set of S, then for this premise
+  # to be counted for a poset p, also p has to have the pair (a,b)
+  A_intersection <- array(0,c(depth_premises$total_number_premises, depth_premises$total_number_premises + n_items^2))
+
+  # Constraints 2:
+  # matrix for the constraints for the implications of the (non-) union:
+  # If a pair (a,b) is not in the union ('in the non-union") of the ufg premise,
+  # then for this premise to be countet for a poset p, also p has to have NOT the pair (a,b)
+  A_non_union <- array(0,c(depth_premises$total_number_premises, depth_premises$total_number_premises + n_items^2))
+
+
+  # objective of the MIL program: simply adding the set Sscr (weighted by the corresponding weight) which imply a poset p
+  obj <- rep(0, depth_premises$total_number + n_items^2)
+
+  # Now, we go through every set in $Sscr$ see Definition 2 of the corresponding paper.
+  for (k in seq_len(depth_premises$total_number_premises)) {
+
+    # If the partial order lies in the conclusion of the ufg premises, then we add
+    # the following amount onto the ufg depth value.
+    obj[k] <- (1/constant_weight)^length(depth_premises$ufg_premises[[k]]) / depth_premises$constant_cn
+
+    # computing the intersection of all elements of the ufg premises
+    intersection <- as.vector(Reduce("pmin", depth_premises$ufg_premises[[k]]))
+
+    # computing the edges which never occur
+    non_union <- as.vector(1 - Reduce("pmax", depth_premises$ufg_premises[[k]]))
+
+    # check how large intersection and non existence of edges are
+    # If both are empty, then every poset needs to lie in the conclusion. Else we
+    # need a restriction from one of the two sides. Compare with Definition 1 in
+    # the corresponding article.
+    n_intersection <- sum(intersection)
+    n_non_union <- sum(non_union)
+
+    if (n_intersection >= 1) {
+      # the following constraints model that if (a,b) in the intersection of a premise that is counted then also p has to have the pair (a,b).
+      # premise counted => all pairs of the intersection in p: x_pairsofintersection/#intersection >= x_premiseiscounted
+      A_intersection[k, k] <- -1 # this ufg premise S has an constraint which is given by the next line:
+      A_intersection[k, depth_premises$total_number_premises +
+                       which(intersection == 1)] <- 1/n_intersection
+      # note that rhs part of the gurobi model will be set to 0. Thus, this constraint
+      # implies that if this ufg premise wants to be used in the sum of the
+      # depth, then the second part of the columns must be fulfilled.
     }
+
+    if (n_non_union >= 1) {
+      # the following constraints model that if (a,b) is in the non-union of a premise that is counted then also p has to have NOT the pair (a,b).
+      # premise counted => all pairs of the non-union NOT in p: x_pairsofnonunion/#nonunion <= 1 - x_premiseiscounted
+      A_non_union[k, k] <- -1
+      A_non_union[k, depth_premises$total_number_premises +
+                    which(non_union == 1)] <- -1/n_non_union
+      # note that rhs part of the gurobi model will be set to -1. Thus, this constraint
+      # implies that if this ufg premise wants to be used in the sum of the
+      # depth, then the second part of the columns must be fulfilled.
+    }
+
   }
 
+  # Recall the comments in the beginning of this function. Part 4, the transitivity,
+  # is now discussed
+  # We go now through all pairs, and if (a,b) and (b,c) in the poset, then (a,c)
+  # needs to be as well
+  # Note that only the second part of the columns of the constraints are now of
+  # interest. Since this has notehing to do with the ufg premises and conlcusions
+  A_transitive <- array(0, c(n_items*(n_items - 1)*(n_items - 2), ncol(A_intersection)))
+  # index[i,j] denotes column i and row j
+  indexs <- seq_len(n_items^2)
+  dim(indexs) <- c(n_items, n_items)
+  t <- 1
+  # transitivity means that if (i,j) and (j,k) in a poset, then also (i,k) must
+  # be an element of the poset. Thus, x_ik >= x_ij +x_jk -1
+  for (i in seq_len(n_items)) {
+    for (j in seq_len(n_items)[-i]) {
+      for (k in seq_len(n_items)[-c(i,j)]) {
+        A_transitive[t, depth_premises$total_number_premises +
+                       c(indexs[i,j],indexs[j,k])] <- -1
+        A_transitive[t, depth_premises$total_number_premises +
+                       indexs[i,k]] <- 1
+        t <- t + 1
 
-  mat_bt <- matrix(ncol = number_cols, nrow = length(list_graph))
-  colnames(mat_bt) <- col_names
-
-  for (graph_index in 1:length(list_graph)) {
-    col_index <- 1
-    for (i in 1:(length(model_comp) - 1)) {
-      for (j in (i + 1):length(model_comp)) {
-        if (list_graph[[graph_index]][i,j] == 1) {
-          mat_bt[graph_index, col_index] <- 2
-        } else if (list_graph[[graph_index]][j,i] == 1) {
-          mat_bt[graph_index, col_index] <- 0
-        } else {
-          mat_bt[graph_index, col_index] <- 1
-        }
-        col_index <- col_index + 1
+        # note that rhs part of the gurobi model will be set to -1. Thus, if [i,j]
+        # and [j,k] in the poset, then [i,k] needs to be as well
       }
     }
   }
 
-  return(mat_bt)
-}
 
+  # Recall the comments in the beginning of this function. Part 3, the antisymmetrie,
+  # is now discussed
+  # Note that only the second part of the columns of the constraints are now of
+  # interest. Since this has notehing to do with the ufg premises and conlcusions
+  A_antisym <- array(0,c(n_items*(n_items - 1),ncol(A_transitive)))
+  t <- 1
+  # we now model that if (i,j) in p, then (j,i) notin p
+  # Thus, we ensure that x_ij +x_ji <=1
+  for (i in seq_len(n_items - 1)) {
+    for (j in seq((i + 1), n_items)) {
 
-# this function is a help function for compute_upper_ufg_bound
-sumup_prop_set <- function(set, weight_constant = (1/16)) {
-  length_ufg <- lapply(X = set, FUN = function(x){length(x)})
-  sum <- sum(unlist(lapply(X = length_ufg, FUN = function(x) {prod(rep(1/16, x))})))
-  return(sum)
-}
+      A_antisym[t, depth_premises$total_number_premises +
+                  c(indexs[i,j],indexs[j,i]) ] <- -1
+      t <- t + 1
 
-
-
-# fixed edges is a binary square matrix, needs to be rbind(c(row,col), c(row, col))
-compute_upper_ufg_bound <- function(fixed_edges, fixed_none_edges, further_edge,
-                                        depth_premises, constant_weight = (1/16)) {
-  # Sorting ufg premises
-  ufg_has_edge <- list()
-  ufg_has_no_edge <- list()
-
-  for (index_ufg in seq(1, depth_premises$total_number_premises)) {
-    ufg <-  depth_premises$ufg_premises[[index_ufg]]
-
-
-    if (all(Reduce("|", ufg)[rbind(fixed_edges, as.vector(further_edge))]) && (!(any(Reduce("&", ufg)[fixed_none_edges])))) {
-      ufg_has_edge <- append(ufg_has_edge, list(ufg))
-    }
-    if (all(Reduce("|", ufg)[fixed_edges]) && (!(any(Reduce("&", ufg)[rbind(fixed_none_edges, as.vector(further_edge))])))) {
-      ufg_has_no_edge <- append(ufg_has_no_edge, list(ufg))
-    }
-
-  }
-
-  # Computing lower and upper bound
-  upper_has_edge <- sumup_prop_set(ufg_has_edge) / depth_premises$constant_cn
-  upper_has_not_edge <- sumup_prop_set(ufg_has_no_edge) / depth_premises$constant_cn
-
-  return(list(fixed_edges = fixed_edges,
-              fixed_none_edges = fixed_none_edges,
-              further_edge = further_edge,
-              upper_has_edge = upper_has_edge,
-              upper_has_not_edge = upper_has_not_edge))
-
-}
-
-
-
-# Help Function which returns the cartesian product
-help_fct_cartesian <- function(x) {
-  result <- list()
-  for (i in seq(1, 8)) {
-    result <- append(result, list(c(x,i)))
-  }
-  return(result)
-}
-
-# This function computes the ufg of a poset where all ufg premises are already
-# computed
-compute_ufg_given_premises <- function(poset_interest, ufg, cn_constant,
-                                       constant_weight = (1/16)) {
-
-  depth <- 0
-  for (premises in ufg) {
-    if (all(ddandrda::test_porder_in_concl(premises, list(poset_interest)))) {
-      depth <- depth + prod(rep(1/16, length(premises)))
+      # note that rhs part of the gurobi model will be set to -1. Thus, if [i,j]
+      # and [j,i] cannot be in the poset
     }
   }
-  return(depth/cn_constant)
+
+
+  # gurobi_model (without reflexivity part, see below)
+  model <- list(modelsense = "max",
+                obj = obj,
+                lb = rep(0,depth_premises$total_number_premises + n_items^2),
+                ub = rep(1,depth_premises$total_number_premises + n_items^2),
+                vtype = rep("B",depth_premises$total_number_premises + n_items^2),
+                A = rbind(A_intersection, A_non_union, A_transitive, A_antisym),
+                rhs = c(rep(0,depth_premises$total_number_premises),
+                        rep(-1,depth_premises$total_number_premises),
+                        rep(-1,nrow(A_transitive)),
+                        rep(-1,nrow(A_antisym))),
+                sense = rep(">=", 2*depth_premises$total_number_premises +
+                              nrow(A_transitive) + nrow(A_antisym)))
+
+  # Part 5: reflexivity
+  # Note that we need to ensure that the reflexive part is also given, thus
+  # there we set the lowerbound to 1
+  for (k in (1:n_items)) {
+    model$lb[depth_premises$total_number_premises + indexs[k,k]] <- 1
+  }
+  return(model)
 }
 
 
+
+# Function which converts a list of posets as matrices (see convert_to_matrix
+# function) to format needed for prefmod package (analogous to prefmod::design(prefmod::cemspc))
+construct_design_bt <- function(list_graph) {
+
+  heatmap <-  Reduce("+", list_graph)
+  cl_names <- colnames(list_graph[[1]])
+  df_design_bt <- data.frame(matrix(ncol = 2 + 3 + dim(heatmap)[1], nrow = 0))
+  colnames(df_design_bt) <- c("cum_sum", "mu", "pref_a", "undecided", "pref_b", colnames(list_graph[[1]]))
+  sum_graphs <- length(list_graph)
+
+
+  mu <- 1
+  for (i in seq_len(length(cl_names) - 1)) {
+    for (j in seq(i + 1, length(cl_names))) {
+      input <- rep(0, length(cl_names))
+
+      input[c(i,j)] <- c(-1, 1)
+      df_design_bt[nrow(df_design_bt) + 1, ] <- c(heatmap[i,j], mu, 1, 0, 0, input)
+
+      input[c(i,j)] <- c(0, 0)
+      df_design_bt[nrow(df_design_bt) + 1, ] <- c(sum_graphs - heatmap[i,j] - heatmap[j,i], mu, 0, 1, 0, input)
+
+      input[c(i,j)] <- c(1, -1)
+      df_design_bt[nrow(df_design_bt) + 1, ] <- c(heatmap[j,i], mu, 0, 0, 1, input)
+
+      mu <- mu + 1
+    }
+  }
+
+
+  return(df_design_bt)
+}
 ################################################################################
 # Upload Algorithm Performances
 # The following code part as well as the performance evaluation was already done
@@ -187,7 +295,6 @@ table_res_brier = full_res  %>% group_by(metric, dataset, method) %>%
 output_brier  = reshape2::dcast(table_res_brier, dataset~method)
 output_brier = cbind(rep("brier_score", 16), output_brier)
 colnames(output_brier)[1] = "metric"
-# brier score umdrehen dest kleiner desto besser
 
 
 table_res_auc = full_res  %>% group_by(metric, dataset, method) %>%
@@ -227,11 +334,6 @@ for (data_name in data_sets) {
   single_data_eval <- single_data_eval[, -c(1,2)]
   list_graph <- append(list_graph, list(convert_to_matrix(single_data_eval)))
 }
-# we convert as follows, the entry (i [row],j [column]) of the matrix denotes that
-# i has a lower performance than j
-
-
-mat_bt <- convert_to_rowbt(list_graph)
 
 ################################################################################
 #
@@ -262,6 +364,7 @@ dev.off()
 
 # Heatmap
 edges <- Reduce("+", list_graph)
+colnames(edges) <- rownames(edges) <- c("BS", "CART", "EN", "GBM", "GLM", "LASSO", "RF", "RIDGE")
 df_edge_exist <- melt(edges)
 df_edge_exist <- df_edge_exist[df_edge_exist$value != 0, ]
 
@@ -303,13 +406,15 @@ names_columns <- colnames(list_graph[[1]])
 # Since we consider here only 16 partial orders going through all subsets of
 # those 16 elements is faster than computing all posets with 8(!) items
 
+start_time <- Sys.time()
 depth_premises <- ddandrda::compute_ufg_depth_porder(list_graph,
                                             print_progress_text = TRUE,
                                             save_ufg_premises = TRUE)
+total_time <- Sys.time() - start_time
 
 max(depth_premises$depth_ufg) # [1] 0.31869
 
-## All partial orders with depth larger than 0
+# observed deepest depth values
 max_depth_index <- sort(depth_premises$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
 pdf("plots_observed_from_highest_depth.pdf", onefile = TRUE)
 for (i in max_depth_index) {
@@ -321,7 +426,7 @@ dev.off()
 
 
 
-## Intersections (high to low)
+# Intersections (high to low) of the observed depth values
 max_depth_index <- sort(depth_premises$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
 pdf("plots_observed_intersect_from_highes.pdf", onefile = TRUE)
 for (i in 1:max(max_depth_index)) {
@@ -330,229 +435,70 @@ for (i in 1:max(max_depth_index)) {
     intersect <- intersect & matrix(as.logical(list_graph[[max_depth_index[j]]]), ncol = item_number)
   }
   colnames(intersect) <- rownames(intersect) <- names_columns
-  # print(mat * 1)
-  # hasse(mat) plots the graph from top to bottom, with smallest value at bottom
-  # -> change and set arrow to "backward"
   hasse(t(intersect), parameters = list(arrow = "backward", shape = "roundrect"))
 }
 dev.off()
 
 
 
-
 # Nevertheless, we want to obtain the poset with highest depth value based on
 # ALL (not only observed posets). The number of all possible posets is
 # 431723379 (see: https://oeis.org/A001035)
-# We use that we immediately the Appendix of the corresponding article to get upper
-# bounds for posets which contain or do not contain a certain edge. Since via the
-# observed posets we already have a lower bound of the maximal ufg depth (max observed depth)
-# we can use this to determine already some edges if they lie in the poset with
-# maximal depth or not-
+# Therefore, we implemented an mixed integer linear programm and use gurobi.
 
-# IMPORTANT: Please read the following lines before proceeding.
-# Line 366 to 440 gives the procedure to get all fixed edges (not edges). This code
-# must be run twice.
-# 1. In the first run, comment all code lines with comment: "comment out - Round 0"
-#    and run the code from line 366 to 440 once
-# 2. In the second step comment out all code lines with the comment "comment out - Round 1"
-#    and run again through the entire code form line 366 to 440
-#    Note that in Round 1 you also have to run the codes with te comment Round 0
-# These two rounds give you the entire computation
+# defining and optimize the model
+gurobi_model <- define_gurobi_ufg(depth_premises)
 
-
-
-
-
-###### Procedure: Check which edges are fixed by upper and lower bound discussions
-## START
-# Attention we overwrite the data frame
-df_upper_bounds <- data.frame(matrix(ncol = 5, nrow = 0))
-colnames(df_upper_bounds) <- c("fixed_edges", "fixed_none_edges", "further_edge", "upper_has_edge", "upper_has_not_edge")
-
-all_edges_fixed <- list(c(1,1), c(2,2), c(3,3), c(4,4), c(5,5), c(6,6), c(7,7), c(8,8) #  Round 0: due to reflexivity these edges need to be set
-                        # , c(2,1), c(2,4) # comment - Round 1
-                        )
-all_non_edges_fixed <- list(c(1,2), c(4,2), c(8,2) # Round 0: due to the heat map we can observe
-                            # that these edge were never observed and therefore every poset which has
-                            # this edge need to have depth zero
-                            # , c(1,3), c(1,6), c(1,8), c(3,2), c(3,6), c(5,2), c(5,3),  # comment out - Round 1
-                            # c(5,6), c(5,8), c(6,2), c(7,2)  # comment out - Round 1
-                            )
-
-row_col_interest <- unlist(lapply(seq_len(8), FUN = help_fct_cartesian), recursive = FALSE)
-row_col_interest <- row_col_interest[-c(1, 10, 19, 28, 37, 46, 55, 64)] # Round 0
-row_col_interest <- row_col_interest[-c(1, 23, 51)] # Round 0
-row_col_interest <- row_col_interest[-c(7, 9)] # comment out - Round 1
-row_col_interest <- row_col_interest[-c(1, 4, 6, 13, 16, 26, 27, 29, 31, 33, 40)] # comment out - Round 1
-# length(row_col_interest)
-
-
-# get lower bound of
-# Round 0: we take the maximal observed ufg depth as starting point
-max_depth_value <- max(depth_premises$depth_ufg)
-# Round 1: check if the poset where we only add all edges fixed has higher depth then
-# the one fixed at Round 0
-# No, it is below the observed max --> stay at the same observed max as Round 0
-# Note that indeed all_non_edges_fixed is true for observed max ufg depth
-# check_poset <- diag(8)
-# check_poset[rbind(c(2,1), c(2,4))] <- 1
-# check_poset <- ddandrda::compute_transitive_hull(check_poset)
-# check_poset # checken ob non edges fix passt
-# depth_premises_check <- ddandrda::compute_ufg_depth_porder(porder_observed = list_graph,
-#                                                            porder_depth = list(check_poset),
-#                                                            print_progress_text = FALSE,
-#                                                            save_ufg_premises = FALSE)
-# depth_premises_check$depth_ufg
-
-
-
-for (row_col_inner in row_col_interest) {
-  bounds <- compute_upper_ufg_bound(fixed_edges = t(matrix(unlist(all_edges_fixed), nrow  = 2)),
-                                        fixed_none_edges = t(matrix(unlist(all_non_edges_fixed), nrow  = 2)),
-                                        further_edge = row_col_inner,
-                                        depth_premises = depth_premises)
-  df_upper_bounds[nrow(df_upper_bounds) + 1, ] <- list(list(bounds$fixed_edges), list(bounds$fixed_none_edges),
-                                                       list(bounds$further_edge), bounds$upper_has_edge, bounds$upper_has_not_edge)
-}
-
-
-not_set_edge <- which(df_upper_bounds$upper_has_edge < max_depth_value)
-set_edge <- which(df_upper_bounds$upper_has_not_edge < max_depth_value)
-df_upper_bounds[not_set_edge, ]
-# The following edges are not set in the maximal depth, as these edges lead to a lower depth then
-# the current lower bound of max depth
-# length(not_set_edge)
-# for (i in not_set_edge) {print(df_upper_bounds[i, ]$further_edge)}
-# Round 0: c(1,3), c(1,6), c(1,8), c(3,2), c(3,6), c(5,2), c(5,3), c(5,6), c(5,8), c(6,2), c(7,2)  # in total 11
-# Round 1: empty
-df_upper_bounds[set_edge, ]
-# The following edges need to be set, else the depth value would be below the current max depth
-# Note that in each row I just add those which we did not fix befor
-# length(set_edge)
-# for (i in set_edge) {print(df_upper_bounds[i, ]$further_edge)}
-# Round 0: c(2,1), c(2,4) # in total 2
-# Round 1: empty
-
-
-## Thus, procedure ends after Round 1.
-
-###### Procedure: Check which edges are fixed by upper and lower bound discussions
-## END
-
-
-
-
-# Now we deleted obtained all edges/none edges which are fixed by the upper
-# and lower bound of the depth (see Appendix)
-
-sum(unlist(lapply(X = seq(1,52), FUN = function(x) {choose(40,x)}))) # still too large?
-
-max_depth_value <- max(depth_premises$depth_ufg)
-
-poset_basic <- diag(8)
-poset_basic[rbind(c(2,1), c(2,4))] <- 1
-poset_basic <- ddandrda::compute_transitive_hull(poset_basic)
-
-edges_unclear <- unlist(lapply(seq_len(8), FUN = help_fct_cartesian), recursive = FALSE)
-edges_unclear <- edges_unclear[-c(1, 10, 19, 28, 37, 46, 55, 64)]
-edges_unclear <- edges_unclear[-c(1, 23, 51)]
-edges_unclear <- edges_unclear[-c(7, 9)]
-edges_unclear <- edges_unclear[-c(1, 4, 6, 13, 16, 26, 27, 29, 31, 33, 40)]
-
-poset_list <- list()
-depth_values_list <- list()
-
-# Note cardinality 1 to 7: no posets with higher depth than the observed one exists
-start_time <- Sys.time()
-for (card_sub in 1:40) {
-  # iterating over all subsets of size k (for fixed n)
-  # using Gosper's Hack
-  # see: http://programmingforinsomniacs.blogspot.com/2018/03/gospers-hack-explained.html
-  subset_binary <- c(rep(0, (length(edges_unclear) - card_sub)), rep(1, card_sub))
-  print(paste0("now at cardinality ", card_sub))
-  while (TRUE) {
-
-    poset_inner <- poset_basic
-    set_edges <- which(as.logical(subset_binary))
-    for (edge in set_edges) {
-      poset_inner[edges_unclear[[edge]][1], edges_unclear[[edge]][2]] <- 1
-    }
-    if (ddandrda::test_if_porder(poset_inner)) {
-      depth_inner <- compute_ufg_given_premises(poset_inner, ufg = depth_premises$ufg_premises,
-                                                cn_constant = depth_premises$constant_cn)
-      if (depth_inner >= max_depth_value) {
-        poset_list <- append(poset_list, list(poset_inner))
-        depth_value_list <- append(depth_value_list, list(depth_inner))
-      }
-    }
-
-    # switch to next subset or break while loop
-    if (all(subset_binary[seq(1, card_sub)] == rep(1, card_sub))) {
-      break
-    }
-    index_one <- which(subset_binary == 1)
-    max_one <- max(index_one)
-    max_zero_s_max_one <- max(
-      which(subset_binary == 0)[which(subset_binary == 0) < max_one])
-    subset_binary[c(max_zero_s_max_one, max_zero_s_max_one + 1)] <- c(1,0)
-    ones_larger <- index_one[index_one > max_zero_s_max_one + 1]
-    if (length(ones_larger) != 0) {
-      subset_binary[seq(min(ones_larger), length(edges_unclear))] <- 0
-      subset_binary[seq(length(edges_unclear) - length(ones_larger) + 1,
-                        length(edges_unclear))] <- rep(1, length(ones_larger))
-    }
+# Optimizing according to the Nth deepest posets.
+# For further information on how gurobi does this see:
+# - https://www.gurobi.com/documentation/9.5/refman/finding_multiple_solutions.html
+# - https://www.gurobi.com/documentation/9.5/refman/poolsearchmode.html#parameter:PoolSearchMode
+N <- 20
+result_all_N_highest_depth <- gurobi::gurobi(gurobi_model,params = list(PoolSearchMode = 2,
+                                                                        PoolSolutions = N))
+pdf("plots_all_N_from_highest_depth.pdf", onefile = TRUE)
+for (k in (1:N)) {
+  poset_k_highest_depth <- round((result_all_N_highest_depth$pool[[k]])$xn[-seq_len(depth_premises$total_number_premises)], 3)
+  dim(poset_k_highest_depth) <- c(item_number, item_number)
+  mat <- matrix(as.logical(poset_k_highest_depth), ncol = item_number)
+  colnames(mat) <- rownames(mat) <- names_columns
+  # TODO
+  # FEHLT KOMMENTAR WARUM MAN POSET TESTEN MUSS
+  if (ddandrda::test_if_porder(mat)) {
+    hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
+  } else {
+    print(paste0("Attention: ", k, " is not a poset!"))
   }
 }
-end_time <- Sys.time()
-end_time - start_time
+dev.off()
 
 
+# Computing/Optimizing according to the N smallest posets where depth is not zero
+# TODO
+# FEHLT KOMMENTAR ZU NUMERISCHEN PROBLEMEN
+N <- 50
+gurobi_model$modelsense <- "min"
+gurobi_model$A <- rbind(gurobi_model$A,
+                 c(rep(1, depth_premises$total_number_premises),
+                   rep(0, item_number^2)))
+gurobi_model$sense <- c(gurobi_model$sense,">=")
+gurobi_model$rhs <- c(gurobi_model$rhs, 1)#0.00001)# numerical problems can occur
 
-#
-#
-# ## Some pictures and vlaues
-# print(paste0("The minimal value in list is ", min(depth_poset_list$depth_ufg), ". Note that the smalles value of ALL posets is 0."))
-# print(paste0("The maximal value is ", max(depth_poset_list$depth_ufg)))
-# #### mean, sd, distribution etc value are not meaningful as not all posets are considered!
-#
-#
-#
-#
-#
-# ## All partial orders with depth larger than 0
-# max_depth_index <- sort(depth_poset_list$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
-# stop_print <- 100
-# pdf("plots_all_from_highest_depth.pdf", onefile = TRUE)
-# for (i in max_depth_index[seq(1,stop_print)]) {
-#   mat <- matrix(as.logical(poset_list[[i]]), ncol = item_number)
-#   colnames(mat) <- rownames(mat) <- names_columns
-#   hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
-# }
-# dev.off()
-#
-#
-#
-# ## Intersections (high to low)
-# max_depth_index <- sort(depth_poset_list$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
-# pdf("plots_all_intersect_from_highes.pdf", onefile = TRUE)
-# stop_print <- 100
-# for (i in 1:min(length(max_depth_index), stop_print)) {
-#   intersect <- matrix(rep(TRUE, item_number * item_number), ncol = item_number)
-#   for (j in seq(1, i)) {
-#     intersect <- intersect & matrix(as.logical(poset_list[[max_depth_index[j]]]), ncol = item_number)
-#   }
-#   colnames(intersect) <- rownames(intersect) <- names_columns
-#   # print(mat * 1)
-#   # hasse(mat) plots the graph from top to bottom, with smallest value at bottom
-#   # -> change and set arrow to "backward"
-#   hasse(t(intersect), parameters = list(arrow = "backward", shape = "roundrect"))
-# }
-# dev.off()
-#
-#
-# # minimal to maximal depth value does not make sense at this needs to contain all
-# # zeros which lead directly to an empty poset.
-
+result_all_N_smallest_depth <- gurobi::gurobi(gurobi_model,params = list(PoolSearchMode = 2, PoolSolutions = N))
+pdf("plots_all_N_from_lowest_depth.pdf", onefile = TRUE)
+for (k in (1:N)) {
+  poset_k_smallest_depth <- round((result_all_N_smallest_depth$pool[[k]])$xn[-seq_len(depth_premises$total_number_premises)], 3)
+  dim(poset_k_smallest_depth) <- c(item_number, item_number)
+  mat <- matrix(as.logical(poset_k_smallest_depth), ncol = item_number)
+  colnames(mat) <- rownames(mat) <- names_columns
+  # see above why checking if poset is needed
+  if (ddandrda::test_if_porder(mat)) {
+    hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
+  } else {
+    print(paste0("Attention: ", k, " is not a poset!"))
+  }
+}
+dev.off()
 
 
 
@@ -568,7 +514,7 @@ end_time - start_time
 # Constructing the design matrix
 design_mat <- construct_design_bt(list_graph)
 
-colnames(design_mat)[4] <- "Boosted_Stumps"
+colnames(design_mat)[6] <- "Boosted_Stumps"
 design_mat$mu <- as.factor(design_mat$mu)
 
 result_UCI <- gnm(cum_sum ~ undecided + Boosted_Stumps + CART + ElasticNet + GBM +

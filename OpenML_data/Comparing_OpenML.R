@@ -416,6 +416,8 @@ depth_value_all <- compute_ufg_exist_premises(poset_interest = list_porder_all,
 # saveRDS(depth_value_dupl, "part1_depth_value_dupl.rds")
 # saveRDS(depth_value_all, "part1_depth_value_all.rds")
 
+# depth_value_all <- readRDS("part1_depth_value_all.rds")
+
 
 
 
@@ -431,10 +433,10 @@ plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
 
 # all possible posets
 plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
-            item_number = dim(prep_ufg_premises$list_porder_premises[[1]])[1],
+            item_number = number_classifiers,
             depth_value =  depth_value_all,
             list_mat_porders_ml = list_porder_all,
-            max_plot_number = 50,
+            max_plot_number = 200,
             file_name_add = "1_all")
 
 
@@ -462,7 +464,8 @@ proportion_25
 
 ################################################################################
 #
-# PART 2: COMPARING POSETS BASED ON DIFFERENT PERFORMANCE MEASURES
+# PART 2: POSETS BASED ON SUBSET OF PERFORMANCE MEASURES
+# a) High Correlation
 #
 ################################################################################
 
@@ -616,27 +619,54 @@ depth_value_all_22 <- compute_ufg_exist_premises(poset_interest = list_porder_al
 # depth_value_all_22 <- readRDS("part2_depth_value_all_22.rds")
 
 ################################################################################
-# Analysis of their differences
+# Analysis of their differences compared to each other and to the poset defined
+# above
 ################################################################################
 
 # difference in the depth value
-differences_all <- depth_value_all_21 - depth_value_all_22
-pdf("part2_all_boxplot_differences.pdf", onefile = TRUE)
-boxplot(differences_all)
+differences_all_21_22 <- depth_value_all_21 - depth_value_all_22
+pdf("part2_all_boxplot_differences_21_22.pdf", onefile = TRUE)
+boxplot(differences_all_21_22)
 dev.off()
 
-differences_obs <- depth_value_dupl_21 - depth_value_dupl_22
-pdf("part2_obs_boxplot_differences.pdf", onefile = TRUE)
-boxplot(differences_obs)
+
+differences_all_21_part1 <- depth_value_all_21 - depth_value_all
+pdf("part2_all_boxplot_differences_21_1.pdf", onefile = TRUE)
+boxplot(differences_all_21_part1)
 dev.off()
 
-# DD plot (Attention: iid assumption does not hold)
-pdf("part2_all_DD_plot.pdf", onefile = TRUE)
-plot(depth_value_all_21, depth_value_all_22)
+differences_all_22_part1 <- depth_value_all_22 - depth_value_all
+pdf("part2_all_boxplot_differences_22_1.pdf", onefile = TRUE)
+boxplot(differences_all_22_part1)
 dev.off()
 
-pdf("part2_obs_DD_plot.pdf", onefile = TRUE)
-plot(depth_value_dupl_21, depth_value_dupl_22)
+
+# Scatterplot plot
+pdf("part2_all_scatter_plot_21_22.pdf", onefile = TRUE)
+ggplot2::ggplot(data.frame(x = depth_value_all_22, y = depth_value_all_21),
+                aes(x = x, y = y)) +
+  geom_point(size = 0.75) +
+  xlab("Depth based on Brier Score and AUC measure") +
+  ylab("Depth based on F-Score and accuracy measure")
+dev.off()
+
+
+
+pdf("part2_all_scatter_plot_21_1.pdf", onefile = TRUE)
+ggplot2::ggplot(data.frame(x = depth_value_all, y = depth_value_all_21),
+                aes(x = x, y = y)) +
+  geom_point(size = 0.75) +
+  xlab("Depth based on all four measures") +
+  ylab("Depth based on F-Score and accuracy measure")
+dev.off()
+
+
+pdf("part2_all_scatter_plot_22_1.pdf", onefile = TRUE)
+ggplot2::ggplot(data.frame(x = depth_value_all, y = depth_value_all_22),
+                aes(x = x, y = y)) +
+  geom_point(size = 0.75) +
+  xlab("Depth based on all four measures") +
+  ylab("Depth based on Brier Score and AUC measure")
 dev.off()
 
 
@@ -645,18 +675,27 @@ dev.off()
 # Rank structure
 index_depth_21 <- match(depth_value_all_21, sort(unique(depth_value_all_21)))
 index_depth_22 <- match(depth_value_all_22, sort(unique(depth_value_all_22)))
+index_depth <- match(depth_value_all, sort(unique(depth_value_all)))
 max(index_depth_21)
 max(index_depth_22)
+max(index_depth)
 any(duplicated(depth_value_all_21))
 any(duplicated(depth_value_all_22))
-difference_rank <- index_depth_21 - index_depth_22
-pdf("part2_all_difference_rank.pdf", onefile = TRUE)
+any(duplicated(depth_value_all))
+
+
+## First compare between poset group 21 and 22
+difference_rank <- unlist(lapply(seq(1, length(index_depth_21)), function(x) {
+  max(index_depth_21[x] - index_depth_22[x], index_depth_22[x] - index_depth_21[x])
+}))
+
+pdf("part2_all_difference_rank_21_22.pdf", onefile = TRUE)
 boxplot(difference_rank)
 dev.off()
 
 summary(difference_rank)
-# Min.     1st Qu.  Median    Mean 3rd Qu.    Max.
-# -2134.0  -323.5    -7.0     0.0   323.0  2066.0
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
+# 0.0   122.0   323.0   443.4   662.5  2134.0
 length(list_porder_all) # [1] 4231
 
 
@@ -664,6 +703,48 @@ length(list_porder_all) # [1] 4231
 index_depth_21_quant <- which(index_depth_21 < quantile(seq(1, length(list_porder_all)), 0.10))
 boxplot(difference_rank[index_depth_21_quant])
 
+index_depth_22_quant <- which(index_depth_22 > quantile(seq(1, length(list_porder_all)), 0.95))
+boxplot(difference_rank[index_depth_22_quant])
+
+
+
+
+## Compare between poset group 21 and posets in Part 1
+difference_rank <- unlist(lapply(seq(1, length(index_depth)), function(x) {
+  max(index_depth[x] - index_depth_21[x], index_depth_21[x] - index_depth[x])
+}))
+pdf("part2_all_difference_rank_21_1.pdf", onefile = TRUE)
+boxplot(difference_rank)
+dev.off()
+
+summary(difference_rank)
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
+# 0     522    1179    1340    2019    4177
+length(list_porder_all) # [1] 4231
+
+
+# check the highest x % ranked posets
+index_depth_21_quant <- which(index_depth_21 < quantile(seq(1, length(list_porder_all)), 0.10))
+boxplot(difference_rank[index_depth_21_quant])
+
+
+
+
+## Compare between poset group 21 and posets in Part 2
+difference_rank <- unlist(lapply(seq(1, length(index_depth)), function(x) {
+  max(index_depth[x] - index_depth_22[x], index_depth_22[x] - index_depth[x])
+}))
+pdf("part2_all_difference_rank_22_1.pdf", onefile = TRUE)
+boxplot(difference_rank)
+dev.off()
+
+summary(difference_rank)
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
+# 0     476    1092    1251    1870    4155
+length(list_porder_all) # [1] 4231
+
+
+# check the highest x % ranked posets
 index_depth_22_quant <- which(index_depth_22 > quantile(seq(1, length(list_porder_all)), 0.95))
 boxplot(difference_rank[index_depth_22_quant])
 
@@ -701,7 +782,8 @@ plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
 
 ################################################################################
 #
-# PART 3: Discussion on change of ufg depth structure adding performance measures
+# PART 2: POSETS BASED ON SUBSET OF PERFORMANCE MEASURES
+# b) Low Correlation
 #
 ################################################################################
 
@@ -755,13 +837,11 @@ measure_corr
 # Round 0: two largest correlation vs three largest correlation difference
 # Round 1: three larges correlation difference vs four largest correlation difference
 perform_measure_31 <- c("data.name", "learner.name",
-                        "area.under.roc.curve", "root.mean.squared.error" # Round 0
-                        # , "predictive.accuracy" # Round 1
+                        "area.under.roc.curve", "root.mean.squared.error"
 )
 perform_measure_32 <- c("data.name", "learner.name",
-                        "area.under.roc.curve", "root.mean.squared.error", "predictive.accuracy" # Round 0
-                        # , "f.measure" # Round 1
-
+                        "area.under.roc.curve", "root.mean.squared.error", "predictive.accuracy"
+                        , "f.measure"
 )
 
 
@@ -780,6 +860,25 @@ perform_measure_32 <- c("data.name", "learner.name",
 #                         # , "f.measure" # Round 1
 #
 # )
+
+
+
+# #### Case 3: Based on correlation computed by the Paper
+# #### C. Ferri *, J. Hernández-Orallo, R. Modroiu (2008): An experimental
+# #### comparison of performance measures for classification
+# # We consider the following rounds (always uncomment higher rounds please)
+# # Round 0: two largest correlation vs three largest correlation difference
+# # Round 1: three larges correlation difference vs four largest correlation difference
+# perform_measure_31 <- c("data.name", "learner.name",
+#                         "area.under.roc.curve", "f.measure"
+# )
+# perform_measure_32 <- c("data.name", "learner.name",
+#                         "area.under.roc.curve", "predictive.accuracy","root.mean.squared.error"
+#                         , "f.measure"
+#
+# )
+
+
 
 list_mat_porders_ml_31 <- list()
 list_mat_porders_ml_32 <- list()
@@ -802,6 +901,7 @@ for (i in seq(1, length(unique(data_final_filter$data.name)))) {
 same_posets <- lapply(seq(1, length(list_mat_porders_ml_31)), FUN = function(x) {all((list_mat_porders_ml_31[[x]] - list_mat_porders_ml_32[[x]]) == 0)})
 all(unlist(same_posets))
 which(!unlist(same_posets))
+length(which(!unlist(same_posets)))
 
 # Observation Case 1:
 # For Round 0: all observation equal
