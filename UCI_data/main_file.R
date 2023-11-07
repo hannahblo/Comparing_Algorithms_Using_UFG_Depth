@@ -17,7 +17,6 @@
 library(ddandrda)
 
 ### All the other R-packages are on CRAN packages (06.10.2023)
-
 library(reshape)
 library(dplyr)
 library(data.table)
@@ -42,11 +41,8 @@ library(gurobi)
 
 setwd("UCI_data/")
 
-
 # TODO
-# gurobi_model: warum numerisches Problem -> wie umgehen
 # warum testen ob wirklich poset ist
-# stimmt der Code? Kommt 20 mal das selbe poset bei mir raus
 
 
 ################################################################################
@@ -411,6 +407,10 @@ depth_premises <- ddandrda::compute_ufg_depth_porder(list_graph,
                                             print_progress_text = TRUE,
                                             save_ufg_premises = TRUE)
 total_time <- Sys.time() - start_time
+total_time # Time difference of 1.978799 mins
+
+# saveRDS(depth_premises, "depth_premises.rds")
+# saveRDS(total_time, "total_time_depth_premises.rds")
 
 max(depth_premises$depth_ufg) # [1] 0.31869
 
@@ -418,9 +418,9 @@ max(depth_premises$depth_ufg) # [1] 0.31869
 max_depth_index <- sort(depth_premises$depth_ufg, index.return = TRUE, decreasing = TRUE)$ix
 pdf("plots_observed_from_highest_depth.pdf", onefile = TRUE)
 for (i in max_depth_index) {
-  mat <- matrix(as.logical(list_graph[[i]]), ncol = item_number)
-  colnames(mat) <- rownames(mat) <- names_columns
-  hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
+  current_poset <- matrix(as.logical(list_graph[[i]]), ncol = item_number)
+  colnames(current_poset) <- rownames(current_poset) <- names_columns
+  hasse(t(current_poset), parameters = list(arrow = "backward", shape = "roundrect"))
 }
 dev.off()
 
@@ -443,62 +443,47 @@ dev.off()
 
 # Nevertheless, we want to obtain the poset with highest depth value based on
 # ALL (not only observed posets). The number of all possible posets is
-# 431723379 (see: https://oeis.org/A001035)
+# 431723379 (see: https://oeis.org/A001035
 # Therefore, we implemented an mixed integer linear programm and use gurobi.
 
 # defining and optimize the model
 gurobi_model <- define_gurobi_ufg(depth_premises)
 
-# Optimizing according to the Nth deepest posets.
-# For further information on how gurobi does this see:
-# - https://www.gurobi.com/documentation/9.5/refman/finding_multiple_solutions.html
-# - https://www.gurobi.com/documentation/9.5/refman/poolsearchmode.html#parameter:PoolSearchMode
+start_time <- Sys.time()
 N <- 20
-result_all_N_highest_depth <- gurobi::gurobi(gurobi_model,params = list(PoolSearchMode = 2,
-                                                                        PoolSolutions = N))
-pdf("plots_all_N_from_highest_depth.pdf", onefile = TRUE)
+pdf(paste0("plots_all_", N, "_from_highest_depth.pdf"), onefile = TRUE)
 for (k in (1:N)) {
-  poset_k_highest_depth <- round((result_all_N_highest_depth$pool[[k]])$xn[-seq_len(depth_premises$total_number_premises)], 3)
-  dim(poset_k_highest_depth) <- c(item_number, item_number)
-  mat <- matrix(as.logical(poset_k_highest_depth), ncol = item_number)
-  colnames(mat) <- rownames(mat) <- names_columns
+
+  current_highest_depth <- gurobi::gurobi(gurobi_model, params = list(OutputFlag = 0))
+  current_poset <- round(current_highest_depth$x[-seq_len(depth_premises$total_number_premises)], 3)
+  dim(current_poset) <- c(item_number, item_number)
+  current_poset <- matrix(as.logical(current_poset), ncol = item_number)
+  colnames(current_poset) <- rownames(current_poset) <- names_columns
+
   # TODO
   # FEHLT KOMMENTAR WARUM MAN POSET TESTEN MUSS
-  if (ddandrda::test_if_porder(mat)) {
-    hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
+  if (ddandrda::test_if_porder(current_poset)) {
+    print(paste0("Depth of ", k, " deepest poset is ", current_highest_depth$objval))
+    hasse(t(current_poset), parameters = list(arrow = "backward", shape = "roundrect"))
   } else {
     print(paste0("Attention: ", k, " is not a poset!"))
   }
+
+
+  # when computing the next deepest poset, we have to ensure that not the same poset
+  # is chosen with only a subset of all Sscr containing the maximal poset
+  # we have to save the 1 until k-1 posets which have a higher depth
+  index <- rep(1,length(current_poset))
+  index[which(current_poset == 1)] <- -1
+  gurobi_model$A <- rbind(gurobi_model$A,c(rep(0, depth_premises$total_number_premises), index))
+  gurobi_model$rhs <- c(gurobi_model$rhs, 1 - sum(current_poset))
+  gurobi_model$sense <- c(gurobi_model$sense, ">=")
+
 }
 dev.off()
+total_time <- Sys.time() - start_time
+# saveRDS(total_time, paste0("total_time_", N, "_deepest_posets.rds"))
 
-
-# Computing/Optimizing according to the N smallest posets where depth is not zero
-# TODO
-# FEHLT KOMMENTAR ZU NUMERISCHEN PROBLEMEN
-N <- 50
-gurobi_model$modelsense <- "min"
-gurobi_model$A <- rbind(gurobi_model$A,
-                 c(rep(1, depth_premises$total_number_premises),
-                   rep(0, item_number^2)))
-gurobi_model$sense <- c(gurobi_model$sense,">=")
-gurobi_model$rhs <- c(gurobi_model$rhs, 1)#0.00001)# numerical problems can occur
-
-result_all_N_smallest_depth <- gurobi::gurobi(gurobi_model,params = list(PoolSearchMode = 2, PoolSolutions = N))
-pdf("plots_all_N_from_lowest_depth.pdf", onefile = TRUE)
-for (k in (1:N)) {
-  poset_k_smallest_depth <- round((result_all_N_smallest_depth$pool[[k]])$xn[-seq_len(depth_premises$total_number_premises)], 3)
-  dim(poset_k_smallest_depth) <- c(item_number, item_number)
-  mat <- matrix(as.logical(poset_k_smallest_depth), ncol = item_number)
-  colnames(mat) <- rownames(mat) <- names_columns
-  # see above why checking if poset is needed
-  if (ddandrda::test_if_porder(mat)) {
-    hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
-  } else {
-    print(paste0("Attention: ", k, " is not a poset!"))
-  }
-}
-dev.off()
 
 
 

@@ -303,33 +303,6 @@ number_classifiers <- 5
 
 
 
-########
-## IJAR Article ueberlegungen
-# data_set_eval <- data_final_filter[, c("data.name", "learner.name",
-#                                        "f.measure", "predictive.accuracy",
-#                                        "area.under.roc.curve", # Brier Score
-#                                        "root.mean.squared.error",
-#                                        "mean.absolute.error",
-#                                        "kappa",
-#                                        "kb.relative.information.score"
-# )]
-# # In contrast to the other performance measure, lower root.mean.squared.error
-# # is better.
-# data_set_eval[ ,"root.mean.squared.error"] <-
-#   1 - data_set_eval[ ,"root.mean.squared.error"]
-# data_set_eval[ ,"mean.absolute.error"] <-
-#   1 - data_set_eval[ ,"mean.absolute.error"]
-#
-# # We are only interested in the following classifiers
-# data_set_eval <- data_set_eval[data_set_eval$learner.name %in%
-#                                  c("classif.ranger",
-#                                    "classif.rpart",
-#                                    "classif.multinom",
-#                                    "classif.kknn",
-#                                    "classif.glmnet"), ]
-# number_classifiers <- 5
-
-
 
 # Convert to porders
 list_mat_porders_ml <- list()
@@ -341,6 +314,7 @@ for (i in seq(1, length(unique(data_final_filter$data.name)))) {
 
 
 # saveRDS(list_mat_porders_ml, "part1_list_mat_porders_ml.rds")
+# list_mat_porders_ml <- readRDS("part1_list_mat_porders_ml.rds")
 
 
 
@@ -390,7 +364,7 @@ start_time <- Sys.time()
 ufg_premises <- oofos::enumerate_ufg_premises(prep_ufg_premises$whole_context, prep_ufg_premises$n_row_context)
 total_time <- Sys.time() - start_time
 
-# saveRDS(total_time, "part1_total_time.rds")
+# saveRDS(total_time, "part1_total_time_ufg_premises.rds")
 # saveRDS(ufg_premises, "part1_ufg_premises.rds")
 # length(ufg_premises)
 
@@ -407,11 +381,13 @@ depth_value_dupl <- compute_ufg_exist_premises(poset_interest = list_mat_porders
 
 # Computation of depth af all posets
 list_porder_all <- ddandrda::compute_all_partial_orders(number_classifiers, list = TRUE, complemented = FALSE)
+start_time <- Sys.time()
 depth_value_all <- compute_ufg_exist_premises(poset_interest = list_porder_all,
                                               ufg_premises,
                                               prep_ufg_premises)
+total_time <- Sys.time() - start_time
 
-
+# saveRDS(total_time, "part1_total_time_depth_value_all.rds")
 # saveRDS(depth_value, "part1_depth_value.rds")
 # saveRDS(depth_value_dupl, "part1_depth_value_dupl.rds")
 # saveRDS(depth_value_all, "part1_depth_value_all.rds")
@@ -490,6 +466,14 @@ data_set_eval_2 <- data_final_filter[, c("data.name", "learner.name",
 data_set_eval_2[ ,"root.mean.squared.error"] <-
   1 - data_set_eval_2[ ,"root.mean.squared.error"]
 
+data_set_eval_2 <- data_set_eval_2[data_set_eval_2$learner.name %in%
+                                 c("classif.ranger",
+                                   "classif.rpart",
+                                   "classif.multinom",
+                                   "classif.kknn",
+                                   "classif.glmnet"), ]
+number_classifiers <- 5
+
 
 # based on Sensitivity and specificity
 perform_measure_21 <- c("data.name", "learner.name",
@@ -513,11 +497,11 @@ for (i in seq(1, length(unique(data_final_filter$data.name)))) {
                                                                            i * number_classifiers), perform_measure_22]))
 }
 
-# saveRDS(list_mat_porders_ml_21, "part2_list_mat_porders_ml_21.rds")
-# saveRDS(list_mat_porders_ml_22, "part2_list_mat_porders_ml_22.rds")
+# saveRDS(list_mat_porders_ml_21, "part2a_list_mat_porders_ml_21.rds")
+# saveRDS(list_mat_porders_ml_22, "part2a_list_mat_porders_ml_22.rds")
 
-# list_mat_porders_ml_21 <- readRDS("part2_list_mat_porders_ml_21.rds")
-# list_mat_porders_ml_22 <- readRDS("part2_list_mat_porders_ml_22.rds")
+# list_mat_porders_ml_21 <- readRDS("part2a_list_mat_porders_ml_21.rds")
+# list_mat_porders_ml_22 <- readRDS("part2a_list_mat_porders_ml_22.rds")
 
 ################################################################################
 # Descriptive analysis of existence of edges and poset difference
@@ -538,7 +522,7 @@ colnames(edges) <- rownames(edges) <- c("LR", "RF", "CART", "LASSO", "KNN")
 df_edge_exist <- melt(edges)
 df_edge_exist <- df_edge_exist[df_edge_exist$value != 0, ]
 
-pdf("part2_heightmap_21.pdf", onefile = TRUE) # if necessary adjust to 22
+pdf("part2a_heightmap_21.pdf", onefile = TRUE) # if necessary adjust to 22
 ggplot(df_edge_exist, aes(x = Var1, y = Var2)) +
   geom_raster(aes(fill = value)) +
   scale_fill_gradient(low = "lightcyan1", high = "darkcyan") +
@@ -556,8 +540,34 @@ dev.off()
 
 #### Does any two poset equal?
 same_posets <- lapply(seq(1, length(list_mat_porders_ml_21)), FUN = function(x) {all((list_mat_porders_ml_21[[x]] - list_mat_porders_ml_22[[x]]) == 0)})
-which(unlist(same_posets))
-length(which(unlist(same_posets)))
+# returns TRUE if data set returned identical poset
+which(!unlist(same_posets))
+length(which(!unlist(same_posets))) # 20 are different posets -> 60 are identical
+
+same_posets <- lapply(seq(1, length(list_mat_porders_ml)), FUN = function(x) {all((list_mat_porders_ml[[x]] - list_mat_porders_ml_22[[x]]) == 0)})
+which(!unlist(same_posets))
+length(which(!unlist(same_posets))) # 4 are different posets
+
+same_posets <- lapply(seq(1, length(list_mat_porders_ml)), FUN = function(x) {all((list_mat_porders_ml[[x]] - list_mat_porders_ml_21[[x]]) == 0)})
+which(!unlist(same_posets))
+length(which(!unlist(same_posets))) # 16 are different posets
+
+# From this we get that the only difference between the two posets given by 21 and 22
+# is that either an edge a<b exists or does not exist. It never occurs that
+# 21 says a<b is true and 22 says that b<a is true!
+
+
+file_name_add <- "1"
+matrix_list_interest <- list_mat_porders_ml
+item_number <- dim(list_mat_porders_ml_21[[1]])[1]
+names_columns <- colnames(list_mat_porders_ml_21[[1]])
+pdf(paste0("part2a_", file_name_add, "_plots_different_from_other.pdf"), onefile = TRUE)
+for (i in which(!unlist(same_posets))) {
+  mat <- matrix(as.logical(matrix_list_interest[[i]]), ncol = item_number)
+  colnames(mat) <- rownames(mat) <- names_columns
+  hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
+}
+dev.off()
 
 ################################################################################
 # Computation of the ufg-depth
@@ -566,14 +576,18 @@ length(which(unlist(same_posets)))
 # Computation of S, see article (1)
 prep_ufg_premises_21 <- prepare_ufg_premises(list_mat_porders_ml_21, number_items = number_classifiers)
 prep_ufg_premises_22 <- prepare_ufg_premises(list_mat_porders_ml_22, number_items = number_classifiers)
+
 start_time <- Sys.time()
 ufg_premises_21 <- oofos::enumerate_ufg_premises(prep_ufg_premises_21$whole_context, prep_ufg_premises_21$n_row_context)
+total_time <- Sys.time() - start_time
+# saveRDS(total_time, "part2a_total_time_ufg_premises_21.rds")
+# saveRDS(ufg_premises_21, "part2a_ufg_premises_21.rds")
+
+start_time <- Sys.time()
 ufg_premises_22 <- oofos::enumerate_ufg_premises(prep_ufg_premises_22$whole_context, prep_ufg_premises_22$n_row_context)
 total_time <- Sys.time() - start_time
-
-# saveRDS(total_time, "part2_total_time.rds")
-# saveRDS(ufg_premises_21, "part2_ufg_premises_21.rds")
-# saveRDS(ufg_premises_22, "part2_ufg_premises_22.rds")
+# saveRDS(total_time, "part2a_total_time_ufg_premises_22.rds")
+# saveRDS(ufg_premises_22, "part2a_ufg_premises_22.rds")
 
 # Computation of depth of observed posets
 depth_value_21 <- compute_ufg_exist_premises(poset_interest = prep_ufg_premises_21$list_porder_premises,
@@ -595,28 +609,36 @@ depth_value_dupl_22 <- compute_ufg_exist_premises(poset_interest = list_mat_pord
 
 # Computation of depth of all posets
 list_porder_all <- ddandrda::compute_all_partial_orders(number_classifiers, list = TRUE, complemented = FALSE)
+
+start_time <- Sys.time()
 depth_value_all_21 <- compute_ufg_exist_premises(poset_interest = list_porder_all,
                                                  ufg_premises_21,
                                                  prep_ufg_premises_21)
+total_time <- Sys.time() - start_time
+# saveRDS(total_time, "part2a_total_time_depth_value_all_21.rds")
+
+start_time <- Sys.time()
 depth_value_all_22 <- compute_ufg_exist_premises(poset_interest = list_porder_all,
                                                  ufg_premises_22,
                                                  prep_ufg_premises_22)
+total_time <- Sys.time() - start_time
+# saveRDS(total_time, "part2a_total_time_depth_value_all_22.rds")
 
-# saveRDS(depth_value_21, "part2_depth_value_21.rds")
-# saveRDS(depth_value_dupl_21, "part2_depth_value_dupl_21.rds")
-# saveRDS(depth_value_all_21, "part2_depth_value_all_21.rds")
+# saveRDS(depth_value_21, "part2a_depth_value_21.rds")
+# saveRDS(depth_value_dupl_21, "part2a_depth_value_dupl_21.rds")
+# saveRDS(depth_value_all_21, "part2a_depth_value_all_21.rds")
 #
-# saveRDS(depth_value_22, "part2_depth_value_22.rds")
-# saveRDS(depth_value_dupl_22, "part2_depth_value_dupl_22.rds")
-# saveRDS(depth_value_all_22, "part2_depth_value_all_22.rds")
+# saveRDS(depth_value_22, "part2a_depth_value_22.rds")
+# saveRDS(depth_value_dupl_22, "part2a_depth_value_dupl_22.rds")
+# saveRDS(depth_value_all_22, "part2a_depth_value_all_22.rds")
 
-# depth_value_21 <- readRDS("part2_depth_value_21.rds")
-# depth_value_dupl_21 <- readRDS("part2_depth_value_dupl_21.rds")
-# depth_value_all_21 <- readRDS("part2_depth_value_all_21.rds")
+# depth_value_21 <- readRDS("part2a_depth_value_21.rds")
+# depth_value_dupl_21 <- readRDS("part2a_depth_value_dupl_21.rds")
+# depth_value_all_21 <- readRDS("part2a_depth_value_all_21.rds")
 #
-# depth_value_22 <- readRDS("part2_depth_value_22.rds")
-# depth_value_dupl_22 <- readRDS("part2_depth_value_dupl_22.rds")
-# depth_value_all_22 <- readRDS("part2_depth_value_all_22.rds")
+# depth_value_22 <- readRDS("part2a_depth_value_22.rds")
+# depth_value_dupl_22 <- readRDS("part2a_depth_value_dupl_22.rds")
+# depth_value_all_22 <- readRDS("part2a_depth_value_all_22.rds")
 
 ################################################################################
 # Analysis of their differences compared to each other and to the poset defined
@@ -625,24 +647,24 @@ depth_value_all_22 <- compute_ufg_exist_premises(poset_interest = list_porder_al
 
 # difference in the depth value
 differences_all_21_22 <- depth_value_all_21 - depth_value_all_22
-pdf("part2_all_boxplot_differences_21_22.pdf", onefile = TRUE)
+pdf("part2a_all_boxplot_differences_21_22.pdf", onefile = TRUE)
 boxplot(differences_all_21_22)
 dev.off()
 
 
 differences_all_21_part1 <- depth_value_all_21 - depth_value_all
-pdf("part2_all_boxplot_differences_21_1.pdf", onefile = TRUE)
+pdf("part2a_all_boxplot_differences_21_1.pdf", onefile = TRUE)
 boxplot(differences_all_21_part1)
 dev.off()
 
 differences_all_22_part1 <- depth_value_all_22 - depth_value_all
-pdf("part2_all_boxplot_differences_22_1.pdf", onefile = TRUE)
+pdf("part2a_all_boxplot_differences_22_1.pdf", onefile = TRUE)
 boxplot(differences_all_22_part1)
 dev.off()
 
 
 # Scatterplot plot
-pdf("part2_all_scatter_plot_21_22.pdf", onefile = TRUE)
+pdf("part2a_all_scatter_plot_21_22.pdf", onefile = TRUE)
 ggplot2::ggplot(data.frame(x = depth_value_all_22, y = depth_value_all_21),
                 aes(x = x, y = y)) +
   geom_point(size = 0.75) +
@@ -652,7 +674,7 @@ dev.off()
 
 
 
-pdf("part2_all_scatter_plot_21_1.pdf", onefile = TRUE)
+pdf("part2a_all_scatter_plot_21_1.pdf", onefile = TRUE)
 ggplot2::ggplot(data.frame(x = depth_value_all, y = depth_value_all_21),
                 aes(x = x, y = y)) +
   geom_point(size = 0.75) +
@@ -661,7 +683,7 @@ ggplot2::ggplot(data.frame(x = depth_value_all, y = depth_value_all_21),
 dev.off()
 
 
-pdf("part2_all_scatter_plot_22_1.pdf", onefile = TRUE)
+pdf("part2a_all_scatter_plot_22_1.pdf", onefile = TRUE)
 ggplot2::ggplot(data.frame(x = depth_value_all, y = depth_value_all_22),
                 aes(x = x, y = y)) +
   geom_point(size = 0.75) +
@@ -689,13 +711,13 @@ difference_rank <- unlist(lapply(seq(1, length(index_depth_21)), function(x) {
   max(index_depth_21[x] - index_depth_22[x], index_depth_22[x] - index_depth_21[x])
 }))
 
-pdf("part2_all_difference_rank_21_22.pdf", onefile = TRUE)
+pdf("part2a_all_difference_rank_21_22.pdf", onefile = TRUE)
 boxplot(difference_rank)
 dev.off()
 
 summary(difference_rank)
 # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
-# 0.0   122.0   323.0   443.4   662.5  2134.0
+# 0.0   115.0   303.0   409.9   617.0  2207.0
 length(list_porder_all) # [1] 4231
 
 
@@ -713,13 +735,13 @@ boxplot(difference_rank[index_depth_22_quant])
 difference_rank <- unlist(lapply(seq(1, length(index_depth)), function(x) {
   max(index_depth[x] - index_depth_21[x], index_depth_21[x] - index_depth[x])
 }))
-pdf("part2_all_difference_rank_21_1.pdf", onefile = TRUE)
+pdf("part2a_all_difference_rank_21_1.pdf", onefile = TRUE)
 boxplot(difference_rank)
 dev.off()
 
 summary(difference_rank)
 # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
-# 0     522    1179    1340    2019    4177
+# 0.0    87.0   226.0   298.6   436.0  1802.0
 length(list_porder_all) # [1] 4231
 
 
@@ -730,17 +752,17 @@ boxplot(difference_rank[index_depth_21_quant])
 
 
 
-## Compare between poset group 21 and posets in Part 2
+## Compare between poset group 22 and posets in Part 1
 difference_rank <- unlist(lapply(seq(1, length(index_depth)), function(x) {
   max(index_depth[x] - index_depth_22[x], index_depth_22[x] - index_depth[x])
 }))
-pdf("part2_all_difference_rank_22_1.pdf", onefile = TRUE)
+pdf("part2a_all_difference_rank_22_1.pdf", onefile = TRUE)
 boxplot(difference_rank)
 dev.off()
 
 summary(difference_rank)
 # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
-# 0     476    1092    1251    1870    4155
+# 0.0    42.0   140.0   204.9   299.0  1679.0
 length(list_porder_all) # [1] 4231
 
 
@@ -757,13 +779,13 @@ plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
             item_number = number_classifiers,
             depth_value =  depth_value_dupl_21,
             list_mat_porders_ml = list_mat_porders_ml_21,
-            file_name_add = "2_21_obs")
+            file_name_add = "2a_21_obs")
 
 plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
             item_number = number_classifiers,
             depth_value =  depth_value_dupl_22,
             list_mat_porders_ml = list_mat_porders_ml_22,
-            file_name_add = "2_22_obs")
+            file_name_add = "2a_22_obs")
 
 # all possible posets
 plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
@@ -771,14 +793,14 @@ plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
             depth_value =  depth_value_all_21,
             list_mat_porders_ml = list_porder_all,
             max_plot_number = 50,
-            file_name_add = "2_21_all")
+            file_name_add = "2a_21_all")
 
 plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
             item_number = number_classifiers,
             depth_value =  depth_value_all_22,
             list_mat_porders_ml = list_porder_all,
             max_plot_number = 50,
-            file_name_add = "2_22_all")
+            file_name_add = "2a_22_all")
 
 ################################################################################
 #
@@ -792,17 +814,17 @@ plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
 ################################################################################
 ########
 ## ISIPTA Article:
-data_set_eval <- data_final_filter[, c("data.name", "learner.name",
+data_set_eval_3 <- data_final_filter[, c("data.name", "learner.name",
                                        "f.measure", "predictive.accuracy",
                                        "area.under.roc.curve", # Brier Score
                                        "root.mean.squared.error")]
 # In contrast to the other performance measure, lower root.mean.squared.error
 # is better.
-data_set_eval[ ,"root.mean.squared.error"] <-
-  1 - data_set_eval[ ,"root.mean.squared.error"]
+data_set_eval_3[ ,"root.mean.squared.error"] <-
+  1 - data_set_eval_3[ ,"root.mean.squared.error"]
 
 # We are only interested in the following classifiers
-data_set_eval <- data_set_eval[data_set_eval$learner.name %in%
+data_set_eval_3 <- data_set_eval_3[data_set_eval_3$learner.name %in%
                                  c("classif.ranger",
                                    "classif.rpart",
                                    "classif.multinom",
@@ -810,8 +832,8 @@ data_set_eval <- data_set_eval[data_set_eval$learner.name %in%
                                    "classif.glmnet"), ]
 number_classifiers <- 5
 
-# View(data_set_eval)
-colnames(data_set_eval)
+# View(data_set_eval_3)
+colnames(data_set_eval_3)
 number_measures <- 4
 name_measures <- c("f.measure", "predictive.accuracy", "area.under.roc.curve", "root.mean.squared.error")
 
@@ -821,7 +843,7 @@ colnames(df_corr) <- c("measure_1", "measure_2", "correlation")
 measure_corr <- diag(number_measures)
 for (i in seq(1, number_measures - 1)) {
   for (j in seq(i + 1, number_measures)) {
-    inner_cor <- cor(data_set_eval[[name_measures[[i]]]], data_set_eval[[name_measures[[j]]]], method = 'pearson')
+    inner_cor <- cor(data_set_eval_3[[name_measures[[i]]]], data_set_eval_3[[name_measures[[j]]]], method = 'pearson')
     measure_corr[i,j] <- measure_corr[j,i] <- inner_cor
     df_corr[nrow(df_corr) + 1, ] <- c(name_measures[i], name_measures[j], inner_cor)
   }
@@ -885,9 +907,9 @@ list_mat_porders_ml_32 <- list()
 
 number_classifiers <- 5
 for (i in seq(1, length(unique(data_final_filter$data.name)))) {
-  list_mat_porders_ml_31[i] <- list(convert_to_matrix(data_set_eval[seq((i - 1) * number_classifiers + 1,
+  list_mat_porders_ml_31[i] <- list(convert_to_matrix(data_set_eval_3[seq((i - 1) * number_classifiers + 1,
                                                                         i * number_classifiers), perform_measure_31]))
-  list_mat_porders_ml_32[i] <- list(convert_to_matrix(data_set_eval[seq((i - 1) * number_classifiers + 1,
+  list_mat_porders_ml_32[i] <- list(convert_to_matrix(data_set_eval_3[seq((i - 1) * number_classifiers + 1,
                                                                         i * number_classifiers), perform_measure_32]))
 }
 
@@ -899,6 +921,7 @@ for (i in seq(1, length(unique(data_final_filter$data.name)))) {
 ################################################################################
 #### Does any two poset which equal exist?
 same_posets <- lapply(seq(1, length(list_mat_porders_ml_31)), FUN = function(x) {all((list_mat_porders_ml_31[[x]] - list_mat_porders_ml_32[[x]]) == 0)})
+# Returns True when posets equal
 all(unlist(same_posets))
 which(!unlist(same_posets))
 length(which(!unlist(same_posets)))
@@ -926,7 +949,7 @@ colnames(edges) <- rownames(edges) <- c("LR", "RF", "CART", "LASSO", "KNN")
 df_edge_exist <- melt(edges)
 df_edge_exist <- df_edge_exist[df_edge_exist$value != 0, ]
 
-pdf("part3_heatmap_31_Round0.pdf", onefile = TRUE) # if necessary adjust to 32 and/or Round1
+pdf("part2b_heatmap_31_Round0.pdf", onefile = TRUE) # if necessary adjust to 32 and/or Round1
 ggplot(df_edge_exist, aes(x = Var1, y = Var2)) +
   geom_raster(aes(fill = value)) +
   scale_fill_gradient(low = "lightcyan1", high = "darkcyan") +
