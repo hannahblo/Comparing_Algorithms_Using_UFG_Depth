@@ -89,9 +89,10 @@ define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
   #     intersection
   # 2. if p is an element of an ufg set in S, then the union must be subset of
   #     the union od all elements in S
-  # 3. p must be a partial order --> antisymmetric
-  # 4. p must be a partial order --> transitive
-  # 5. p must be a partial order --> reflexive
+  # 3. if the intersection of an ufg set is a subset of p and if the union of the ufg set is a superset of p, then this ufg set MUST be counted for the depth
+  # 4. p must be a partial order --> antisymmetric
+  # 5. p must be a partial order --> transitive
+  # 6. p must be a partial order --> reflexive
 
 
   # To achieve this, the columns of the constraint matrix are given by
@@ -113,8 +114,11 @@ define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
   # If a pair (a,b) is not in the union ('in the non-union") of the ufg premise,
   # then for this premise to be countet for a poset p, also p has to have NOT the pair (a,b)
   A_non_union <- array(0,c(depth_premises$total_number_premises, depth_premises$total_number_premises + n_items^2))
-
-
+  
+  # Contraints 3:  
+  # matrix for the constraints that model that if the intersection of an ufg set is a subset of p and p is a subset of the union of the ufg set, then the premise MUST be counted
+  A_premise <- array(0,c(depth_premises$total_number_premises, depth_premises$total_number_premises + n_items^2))
+  rhs_premise <- rep(0,depth_premises$total_number_premises)
   # objective of the MIL program: simply adding the set Sscr (weighted by the corresponding weight) which imply a poset p
   obj <- rep(0, depth_premises$total_number + n_items^2)
 
@@ -159,10 +163,24 @@ define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
       # implies that if this ufg premise wants to be used in the sum of the
       # depth, then the second part of the columns must be fulfilled.
     }
+	
+	if (n_non_union >= 1 | n_intersection >= 1) {
+      # the following constraints model that if (a,b) is in the non-union of a premise that is counted then also p has to have NOT the pair (a,b).
+      # premise counted => all pairs of the non-union NOT in p: x_pairsofnonunion/#nonunion <= 1 - x_premiseiscounted
+      A_premise[k, k] <- 1
+      A_premise[k, depth_premises$total_number_premises +
+                    which(non_union == 1)] <- 1
+	  A_premise[k, depth_premises$total_number_premises +
+                    which(intersection == 1)] <- -1
+	  rhs_premise[k] <- 1-n_intersection
+      # note that rhs part of the gurobi model will be set to -1. Thus, this constraint
+      # implies that if this ufg premise wants to be used in the sum of the
+      # depth, then the second part of the columns must be fulfilled.
+    }
 
   }
 
-  # Recall the comments in the beginning of this function. Part 4, the transitivity,
+  # Recall the comments in the beginning of this function. Part 5, the transitivity,
   # is now discussed
   # We go now through all pairs, and if (a,b) and (b,c) in the poset, then (a,c)
   # needs to be as well
@@ -191,7 +209,7 @@ define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
   }
 
 
-  # Recall the comments in the beginning of this function. Part 3, the antisymmetrie,
+  # Recall the comments in the beginning of this function. Part 4, the antisymmetrie,
   # is now discussed
   # Note that only the second part of the columns of the constraints are now of
   # interest. Since this has notehing to do with the ufg premises and conlcusions
@@ -218,15 +236,15 @@ define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
                 lb = rep(0,depth_premises$total_number_premises + n_items^2),
                 ub = rep(1,depth_premises$total_number_premises + n_items^2),
                 vtype = rep("B",depth_premises$total_number_premises + n_items^2),
-                A = rbind(A_intersection, A_non_union, A_transitive, A_antisym),
+                A = rbind(A_intersection, A_non_union, A_transitive, A_antisym,A_premise),
                 rhs = c(rep(0,depth_premises$total_number_premises),
                         rep(-1,depth_premises$total_number_premises),
                         rep(-1,nrow(A_transitive)),
-                        rep(-1,nrow(A_antisym))),
-                sense = rep(">=", 2*depth_premises$total_number_premises +
+                        rep(-1,nrow(A_antisym)),rhs_premise),
+                sense = rep(">=", 3*depth_premises$total_number_premises +
                               nrow(A_transitive) + nrow(A_antisym)))
 
-  # Part 5: reflexivity
+  # Part 6: reflexivity
   # Note that we need to ensure that the reflexive part is also given, thus
   # there we set the lowerbound to 1
   for (k in (1:n_items)) {
@@ -234,7 +252,6 @@ define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
   }
   return(model)
 }
-
 
 
 # Function which converts a list of posets as matrices (see convert_to_matrix
