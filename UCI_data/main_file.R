@@ -1,6 +1,7 @@
 # This file discusses the UCI Data Set.
-# For further infomration see Appendix A.2 of Christoph Jansen, Malte Nalenz,
-# Georg Schollmeyer and Thomas Augustin (2023): Statistical comparisons of
+
+# For further information on the data see Appendix A.2 of Christoph Jansen, Malte
+# Nalenz, Georg Schollmeyer and Thomas Augustin (2023): Statistical comparisons of
 # classifiers by generalized stochastic dominance.  Journal of Machine Learning
 # Research,  24: 1 - 37.
 
@@ -114,12 +115,14 @@ define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
   # If a pair (a,b) is not in the union ('in the non-union") of the ufg premise,
   # then for this premise to be countet for a poset p, also p has to have NOT the pair (a,b)
   A_non_union <- array(0,c(depth_premises$total_number_premises, depth_premises$total_number_premises + n_items^2))
-  
-  # Contraints 3:  
+
+  # Contraints 3:
   # matrix for the constraints that model that if the intersection of an ufg set is a subset of p and p is a subset of the union of the ufg set, then the premise MUST be counted
   A_premise <- array(0,c(depth_premises$total_number_premises, depth_premises$total_number_premises + n_items^2))
   rhs_premise <- rep(0,depth_premises$total_number_premises)
-  # objective of the MIL program: simply adding the set Sscr (weighted by the corresponding weight) which imply a poset p
+
+
+   # objective of the MIL program: simply adding the set Sscr (weighted by the corresponding weight) which imply a poset p
   obj <- rep(0, depth_premises$total_number + n_items^2)
 
   # Now, we go through every set in $Sscr$ see Definition 2 of the corresponding paper.
@@ -163,16 +166,16 @@ define_gurobi_ufg <- function(depth_premises, constant_weight = 16){
       # implies that if this ufg premise wants to be used in the sum of the
       # depth, then the second part of the columns must be fulfilled.
     }
-	
+
 	if (n_non_union >= 1 | n_intersection >= 1) {
       # the following constraints model that if (a,b) is in the non-union of a premise that is counted then also p has to have NOT the pair (a,b).
       # premise counted => all pairs of the non-union NOT in p: x_pairsofnonunion/#nonunion <= 1 - x_premiseiscounted
       A_premise[k, k] <- 1
       A_premise[k, depth_premises$total_number_premises +
                     which(non_union == 1)] <- 1
-	  A_premise[k, depth_premises$total_number_premises +
+	    A_premise[k, depth_premises$total_number_premises +
                     which(intersection == 1)] <- -1
-	  rhs_premise[k] <- 1-n_intersection
+	    rhs_premise[k] <- 1 - n_intersection
       # note that rhs part of the gurobi model will be set to -1. Thus, this constraint
       # implies that if this ufg premise wants to be used in the sum of the
       # depth, then the second part of the columns must be fulfilled.
@@ -410,7 +413,7 @@ dev.off()
 
 ################################################################################
 # Computation of the UFG Depth value
-# for further information, see the to the Repesotory corresponding article or
+# for further information, see the to the Repository corresponding article or
 # https://isipta23.sipta.org/wp-content/uploads/2023/06/blocher23a.pdf
 ################################################################################
 item_number <- 8
@@ -464,15 +467,24 @@ dev.off()
 # Therefore, we implemented an mixed integer linear programm and use gurobi.
 
 # defining and optimize the model
-gurobi_model <- define_gurobi_ufg(depth_premises)
-
 start_time <- Sys.time()
-N <- 20
-pdf(paste0("plots_all_", N, "_from_highest_depth.pdf"), onefile = TRUE)
-for (k in (1:N)) {
+gurobi_model <- define_gurobi_ufg(depth_premises)
+total_time <- Sys.time() - start_time
+total_time
 
-  current_highest_depth <- gurobi::gurobi(gurobi_model, params = list(OutputFlag = 0))
-  current_poset <- round(current_highest_depth$x[-seq_len(depth_premises$total_number_premises)], 3)
+N <- 20
+start_time <- Sys.time()
+highest_depth <- gurobi::gurobi(gurobi_model, params = list(OutputFlag = 1,
+                                                            PoolSearchMode = 2,
+                                                            PoolSolutions = N))
+total_time <- Sys.time() - start_time
+# saveRDS(total_time, paste0("total_time_", N, "_deepest_posets.rds"))
+
+
+pdf(paste0("plots_all_", N, "_from_highest_depth.pdf"), onefile = TRUE)
+for (k in seq(1,N)) {
+
+  current_poset <- round(highest_depth$pool[[k]]$xn[-seq_len(depth_premises$total_number_premises)], 3) # TODOOO
   dim(current_poset) <- c(item_number, item_number)
   current_poset <- matrix(as.logical(current_poset), ncol = item_number)
   colnames(current_poset) <- rownames(current_poset) <- names_columns
@@ -480,26 +492,14 @@ for (k in (1:N)) {
   # TODO
   # FEHLT KOMMENTAR WARUM MAN POSET TESTEN MUSS
   if (ddandrda::test_if_porder(current_poset)) {
-    print(paste0("Depth of ", k, " deepest poset is ", current_highest_depth$objval))
+    print(paste0("Depth of ", k, " deepest poset is ", highest_depth$pool[[k]]$objval))
     hasse(t(current_poset), parameters = list(arrow = "backward", shape = "roundrect"))
   } else {
     print(paste0("Attention: ", k, " is not a poset!"))
   }
-
-
-  # when computing the next deepest poset, we have to ensure that not the same poset
-  # is chosen with only a subset of all Sscr containing the maximal poset
-  # we have to save the 1 until k-1 posets which have a higher depth
-  index <- rep(1,length(current_poset))
-  index[which(current_poset == 1)] <- -1
-  gurobi_model$A <- rbind(gurobi_model$A,c(rep(0, depth_premises$total_number_premises), index))
-  gurobi_model$rhs <- c(gurobi_model$rhs, 1 - sum(current_poset))
-  gurobi_model$sense <- c(gurobi_model$sense, ">=")
-
 }
 dev.off()
-total_time <- Sys.time() - start_time
-# saveRDS(total_time, paste0("total_time_", N, "_deepest_posets.rds"))
+
 
 
 
@@ -511,6 +511,9 @@ total_time <- Sys.time() - start_time
 # - Hatzinger, Dittrich (2012): prefmod: An R Package for Modeling Preferences
 #    Based on Paired Comparisons, Rankings, or Ratings
 # - Hatzinger, Maier (2023): Package ‘prefmod’
+# - Sinclaig (1982): GLIM for Preferences
+# - Davidson (1970): On Extending the Bradley-Terry Model to Accommodate Ties in
+#    Paired Comparison Experiments
 ################################################################################
 
 # Constructing the design matrix
@@ -525,6 +528,14 @@ result_UCI <- gnm(cum_sum ~ undecided + Boosted_Stumps + CART + ElasticNet + GBM
                   data = design_mat,
                   family = poisson)
 summary(result_UCI)
+
+## another approach to obtain the model is by the standard glm R function.
+## Note that here mu is printed as well
+# result_Uci_glm <- glm(cum_sum ~ -1 + mu + undecided + Boosted_Stumps + CART + ElasticNet + GBM +
+#                         glm + Lasso + rf + Ridge,
+#                       family = 'poisson', data = design_mat) # loglink is default
+# summary(result_Uci_glm)
+
 
 # lambdas
 lambda <- result_UCI$coefficients[seq(2,9)]
