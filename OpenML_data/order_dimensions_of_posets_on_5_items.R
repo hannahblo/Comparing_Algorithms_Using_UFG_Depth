@@ -12,4 +12,4 @@ for(k in (1:4231)){
 
 max(order_dimensions_5)
 # [1] 2
-# The maximal order dimension of a poset on 5 items is 5
+# The maximal order dimension of a poset on 5 items is 2
