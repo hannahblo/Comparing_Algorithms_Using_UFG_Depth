@@ -3,7 +3,7 @@
 This repository contains R-code and data sets corresponding to the "Comparing Machine Learning Algorithms by Union-Free Generic Depth" article written by H.Blocher, G. Schollmeyer, M. Nalenz and C. Jansen. We apply the ufg depth to two application examples considering the performance of classifiers.
 
 The structure of the repository is as follows:
-- Folder OpenML: contains the file "main.R" that exectutes the application on the data sets provided by the OpenMl repository (see: [https://www.openml.org/]([https://www.gurobi.com/](https://www.openml.org/)), accessed: 05.12.2023)
+- Folder OpenML: contains the file "main.R" that exectutes the application on the data sets provided by the OpenMl repository (see: [https://www.openml.org/](https://www.openml.org/), accessed: 05.12.2023)
 - Folder UCI_data: contains the file "main.R" that exectutes the application on the data sets provided by the UCI repository (Informations about the data see Jansen et al: [https://jmlr.org/papers/v24/22-0902.html](https://jmlr.org/papers/v24/22-0902.html), accessed: 05.12.2023). This folder contains also the R-file validate_classification.R that gives some information on the performance computation.
 
 # Set up
