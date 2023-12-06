@@ -17,6 +17,20 @@
 # devtools::install_github("hannahblo/ddandrda")
 library(ddandrda)
 
+### Information on gurobi:
+# This is a commercial solver that offers a free academic licenses which can be
+# found here: https://www.gurobi.com/features/academic-named-user-license/ (accessed: 08.02.2023).
+# To install this package, please follow the instructions there
+# A documentation can be found here: https://www.gurobi.com/wp-content/plugins/hd_documentations/documentation/9.0/refman.pdf (page 643ff) (accessed: 08.02.2023).
+library(gurobi)
+
+### Information on hasseDiagram:
+# For R versions >=3.5 do the following before installing hasseDiagramm:
+# install.packages("BiocManager")
+# BiocManager::install("Rgraphviz")
+library(hasseDiagram)
+
+
 ### All the other R-packages are on CRAN packages (06.10.2023)
 library(reshape)
 library(dplyr)
@@ -28,22 +42,11 @@ library(stargazer)
 library(prefmod)
 library(reshape2)
 library(utils)
-library(hasseDiagram)
-# For R versions >=3.5 do the following before installing hasseDiagramm:
-# install.packages("BiocManager")
-# BiocManager::install("Rgraphviz")
-library(gurobi)
-# This is a commercial solver that offers a free academic licenses which can be
-# found here: https://www.gurobi.com/features/academic-named-user-license/ (accessed: 08.02.2023).
-# To install this package, please follow the instructions there
-# A documentation can be found here: https://www.gurobi.com/wp-content/plugins/hd_documentations/documentation/9.0/refman.pdf (page 643ff) (accessed: 08.02.2023).
 
 
 
 setwd("UCI_data/")
 
-# TODO
-# warum testen ob wirklich poset ist
 
 
 ################################################################################
@@ -356,7 +359,7 @@ for (data_name in data_sets) {
 # PART 1: FIRST IMPRESSION
 #
 ################################################################################
-setwd("depth_results/")
+# setwd("depth_results/")
 
 
 ### Which edge exists
@@ -518,28 +521,31 @@ dev.off()
 
 # Constructing the design matrix
 design_mat <- construct_design_bt(list_graph)
+name_classifiers <- c("BS", "CART", "EN", "GBM", "GLM", "LASSO", "RF", "RIDGE")
+colnames(design_mat)[seq(6, 13)]  <- name_classifiers
+name_mu <- list()
+for (class_1 in seq(1, length(name_classifiers) - 1)) {
+  for (class_2 in seq(class_1 + 1, length(name_classifiers))) {
+    name_mu <- append(name_mu, rep(paste0(name_classifiers[class_1], "_", name_classifiers[class_2]), 3))
+  }
+}
+design_mat$mu <- unlist(name_mu)
 
-colnames(design_mat)[6] <- "Boosted_Stumps"
+# colnames(design_mat)[6] <- "Boosted_Stumps"
 design_mat$mu <- as.factor(design_mat$mu)
 
-result_UCI <- gnm(cum_sum ~ undecided + Boosted_Stumps + CART + ElasticNet + GBM +
-                    glm + Lasso + rf + Ridge,
+
+
+result_UCI <- gnm(cum_sum ~ undecided + + BS + CART + EN + GBM + GLM + LASSO +
+                  RF + RIDGE,
                   elim = mu, # see: https://cran.r-project.org/web/packages/gnm/gnm.pdf (page 33)
                   data = design_mat,
                   family = poisson)
 summary(result_UCI)
 
-## another approach to obtain the model is by the standard glm R function.
-## Note that here mu is printed as well
-# result_Uci_glm <- glm(cum_sum ~ -1 + mu + undecided + Boosted_Stumps + CART + ElasticNet + GBM +
-#                         glm + Lasso + rf + Ridge,
-#                       family = 'poisson', data = design_mat) # loglink is default
-# summary(result_Uci_glm)
-
-
 # lambdas
 lambda <- result_UCI$coefficients[seq(2,9)]
-lambda$Ridge <- 0
+lambda["RIDGE"] <- 0
 
 # worth
 division <- sum(unlist(lapply(lambda, function(x){exp(2*x)})))
@@ -547,10 +553,10 @@ worth_UCI <- lapply(lambda, function(x){exp(2*x)/division})
 sort_worth_UCI <- sort(unlist(worth_UCI))
 
 graph_bt <- diag(TRUE, length(worth_UCI))
-colnames(graph_bt) <- colnames(list_graph[[1]])
-rownames(graph_bt) <- rownames(list_graph[[1]])
-colnames(graph_bt)[1] <- "Boosted_Stumps"
-rownames(graph_bt)[1] <- "Boosted_Stumps"
+colnames(graph_bt) <- c("BS", "CART", "EN", "GBM", "GLM", "LASSO", "RF", "RIDGE")
+rownames(graph_bt) <- c("BS", "CART", "EN", "GBM", "GLM", "LASSO", "RF", "RIDGE")
+# colnames(graph_bt)[1] <- "Boosted_Stumps"
+# rownames(graph_bt)[1] <- "Boosted_Stumps"
 
 for (index in 1:(length(sort_worth_UCI) - 1)) {
   row <- names(sort_worth_UCI[index])
@@ -562,6 +568,30 @@ for (index in 1:(length(sort_worth_UCI) - 1)) {
 pdf("plot_bradley_terry.pdf", onefile = TRUE)
 hasse(t(graph_bt), parameters = list(arrow = "backward", shape = "roundrect"))
 dev.off()
+
+
+
+
+
+
+## another approach to obtain the model is by the standard glm R function.
+## Note that here mu is printed as well
+result_Uci_glm <- glm(cum_sum ~ -1 + mu + undecided + BS + CART + EN + GBM +
+                       GLM + LASSO + RF + RIDGE,
+                      family = 'poisson', data = design_mat) # loglink is default
+summary(result_Uci_glm)
+
+# lambdas
+lambda <- result_Uci_glm$coefficients[seq(30,37)]
+lambda["RIDGE"] <- 0
+
+# worth
+division <- sum(unlist(lapply(lambda, function(x){exp(2*x)})))
+worth_UCI <- lapply(lambda, function(x){exp(2*x)/division})
+sort_worth_UCI <- sort(unlist(worth_UCI))
+sort_worth_UCI
+
+
 
 ################################################################################
 # Classifier comparison by generalized stochastic dominance

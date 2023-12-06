@@ -1,3 +1,9 @@
+# Analyzing classifiers based on data sets, evaluations, and classifiers
+# provided by the openly available OpenML repository
+# see: https://www.openml.org/ (Accessed: 05.12.2023)
+
+
+
 ################################################################################
 # Set Up
 ################################################################################
@@ -14,8 +20,12 @@
 # install.packages("devtools")
 # devtools::install_github("schollmeyer/oofos")
 
-### All the other R-packages are on CRAN (07.02.2023)
+### Informations about gurobi package
+# To use gurobi a linces is needed. Free Academic licenses can be
+# found here: https://www.gurobi.com/features/academic-named-user-license/
 
+
+### All the other R-packages are on CRAN (07.02.2023)
 library(ddandrda)
 library(oofos)
 library(gurobi)
@@ -26,10 +36,9 @@ library(ggplot2)
 library(reshape2)
 library(hasseDiagram)
 library(ggcorrplot)
+library(gurobi)
 
-library(gurobi)# TODO
-
-setwd("computation_results/")
+setwd("OpenML_data/")
 
 
 
@@ -458,24 +467,36 @@ proportion_25
 #
 ################################################################################
 
+# This is based on the observation that the order dimension of posets with 5
+# items is two.
+# This calculation can be found here:
+context_OpenML <- ddandrda:::compute_context_all_p_orders(n_items=5)
+all_posets_5 <- ddandrda:::compute_all_partial_orders(n_items=5,list=TRUE,complemented=FALSE)
+order_dimensions_5 <- rep(0,4231)
+
+for(k in (1:4231)){
+  order_dimensions_5[k] <- oofos:::compute_order_dimension(all_posets_5[[k]],context_OpenML)
+  print(order_dimensions_5[k])
+}
+max(order_dimensions_5)
+# [1] 2
+# The maximal order dimension of a poset on 5 items is 2
+
+
+
+
+
 # Now we are interested how the posets and depth function differ when using two
 # instead of four performance measures
 # Therefore, we group the performance measures based on their correlation
 # in a) based on high correlation
 # in b) based on low correlation
 
-################################################################################
-# Data Set
-################################################################################
-# Now we produce three sets of posets based on the same data set and classifiers
-# These three set of posets only differ in the used performance measures to obtain
-# the posets
-
 
 data_set_eval_2 <- data_final_filter[, c("data.name", "learner.name",
-                                       "f.measure", "predictive.accuracy",
-                                       "area.under.roc.curve",
-                                       "root.mean.squared.error"
+                                         "f.measure", "predictive.accuracy",
+                                         "area.under.roc.curve",
+                                         "root.mean.squared.error"
 )]
 # In contrast to the other performance measure, lower root.mean.squared.error
 # is better.
@@ -483,11 +504,11 @@ data_set_eval_2[ ,"root.mean.squared.error"] <-
   1 - data_set_eval_2[ ,"root.mean.squared.error"]
 
 data_set_eval_2 <- data_set_eval_2[data_set_eval_2$learner.name %in%
-                                 c("classif.ranger",
-                                   "classif.rpart",
-                                   "classif.multinom",
-                                   "classif.kknn",
-                                   "classif.glmnet"), ]
+                                     c("classif.ranger",
+                                       "classif.rpart",
+                                       "classif.multinom",
+                                       "classif.kknn",
+                                       "classif.glmnet"), ]
 number_classifiers <- 5
 
 
@@ -518,7 +539,16 @@ ggcorrplot::ggcorrplot(measure_corr, hc.order = TRUE, lab = TRUE, type = "lower"
 dev.off()
 
 
+################################################################################
+# Data Set
+################################################################################
+# Now we produce three sets of posets based on the same data set and classifiers
+# These three set of posets only differ in the used performance measures to obtain
+# the posets
 
+
+# Based on the correlations computed above, we consider the following performance
+# measure groups
 perform_measure_21 <- c("data.name", "learner.name",
                        "f.measure", "predictive.accuracy"
                        )
@@ -564,10 +594,11 @@ sum(unlist(lapply(seq(2,8), FUN = function(x){choose(56,x)})))
 ################################################################################
 
 ### Which edge exists
-current_interest <- list_mat_porders_ml_21 # list_mat_porders_ml_22
+# Adjust in the following based on the discussed performance group by 21, 22 or 23
+current_interest <- list_mat_porders_ml_21 # list_mat_porders_ml_22, 23
 
-length(current_interest) # 80
-length(unique(current_interest)) # 58
+length(current_interest)
+length(unique(current_interest))
 Reduce("|", current_interest)
 Reduce("&", current_interest)
 Reduce("+", current_interest)
@@ -578,7 +609,7 @@ colnames(edges) <- rownames(edges) <- c("LR", "RF", "CART", "LASSO", "KNN")
 df_edge_exist <- melt(edges)
 df_edge_exist <- df_edge_exist[df_edge_exist$value != 0, ]
 
-pdf("part2a_heightmap_21.pdf", onefile = TRUE) # if necessary adjust to 22
+pdf("part2a_heightmap_21.pdf", onefile = TRUE) # if necessary adjust to 22 o 23
 ggplot(df_edge_exist, aes(x = Var1, y = Var2)) +
   geom_raster(aes(fill = value)) +
   scale_fill_gradient(low = "lightcyan1", high = "darkcyan") +
@@ -652,6 +683,8 @@ for (i in which(!unlist(same_posets))) {
   hasse(t(mat), parameters = list(arrow = "backward", shape = "roundrect"))
 }
 dev.off()
+
+
 
 ################################################################################
 # Computation of the ufg-depth
@@ -929,6 +962,9 @@ plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
             max_plot_number = 50,
             file_name_add = "2a_23_all")
 
+
+
+
 ################################################################################
 #
 # PART 2: POSETS BASED ON SUBSET OF PERFORMANCE MEASURES
@@ -1055,7 +1091,7 @@ length(which(!unlist(same_posets))) # 19 different posets
 
 
 ### Which edge exists
-current_interest <- list_mat_porders_ml_31
+current_interest <- list_mat_porders_ml_31 # adjust (if necessary to) 32 or 33
 
 length(current_interest)
 length(unique(current_interest))
@@ -1069,7 +1105,7 @@ colnames(edges) <- rownames(edges) <- c("LR", "RF", "CART", "LASSO", "KNN")
 df_edge_exist <- melt(edges)
 df_edge_exist <- df_edge_exist[df_edge_exist$value != 0, ]
 
-pdf("part2b_heatmap_31.pdf", onefile = TRUE) # if necessary adjust to 33
+pdf("part2b_heatmap_31.pdf", onefile = TRUE) # if necessary adjust to 33 or 32
 ggplot(df_edge_exist, aes(x = Var1, y = Var2)) +
   geom_raster(aes(fill = value)) +
   scale_fill_gradient(low = "lightcyan1", high = "darkcyan") +
@@ -1199,8 +1235,8 @@ ggplot2::ggplot(data.frame(x = depth_value_all, y = depth_value_all_31),
   geom_point(size = 0.75) +
   xlab("Depth based on all four measures") +
   ylab("Depth based on AUC and Brier Score\n (or AUC and Accuracy)") +
-  theme(axis.text=element_text(size=12),
-        axis.title=element_text(size=14,))
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14,))
 dev.off()
 
 
@@ -1209,9 +1245,9 @@ ggplot2::ggplot(data.frame(x = depth_value_all, y = depth_value_all_33),
                 aes(x = x, y = y)) +
   geom_point(size = 0.75) +
   xlab("Depth based on all four measures") +
-  ylab("Depth based on AUC and F-score")+
-  theme(axis.text=element_text(size=12),
-        axis.title=element_text(size=14,))
+  ylab("Depth based on AUC and F-score") +
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14,))
 dev.off()
 
 
