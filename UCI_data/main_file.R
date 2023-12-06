@@ -359,7 +359,7 @@ for (data_name in data_sets) {
 # PART 1: FIRST IMPRESSION
 #
 ################################################################################
-setwd("depth_results/")
+# setwd("depth_results/")
 
 
 ### Which edge exists
