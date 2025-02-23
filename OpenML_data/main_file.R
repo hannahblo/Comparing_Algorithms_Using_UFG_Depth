@@ -12,7 +12,7 @@
 # git. Installation can be done by:
 # remove.packages("ddandrda")
 # install.packages("devtools")
-# devtools::install_github("hannahblo/ddandrda")
+# devtools::install_github("hannahblo/ddandrda", ref = "version_before_nov24")
 
 ### Information about packages oofos. This package is under developement on git.
 # Note that to install this package, the R-package gurobi is needed. This is an
@@ -1370,3 +1370,67 @@ plot_result(names_columns =  c("multinom", "ranger", "rpart", "glmnet", "kknn"),
             list_mat_porders_ml = list_porder_all,
             max_plot_number = 50,
             file_name_add = "2b_33_all")
+
+
+################################################################################
+# Reply to reviewer 2 --> only done for the first part where all performance
+# measures are included
+################################################################################
+
+#
+matrix_weight_depth <- lapply(seq(1,length(depth_value_all)), FUN = function(x, values, mat) {mat[[x]]*values[x]}, values = depth_value_all, mat = list_porder_all)
+Reduce('+', matrix_weight_depth)
+
+edges <- Reduce('+', matrix_weight_depth)
+edges <- edges / sum(depth_value_all)
+
+edges_round <- round(edges, 2)
+colnames(edges_round) <- rownames(edges_round) <- c("LR", "RF", "CART", "LASSO", "KNN")
+df_edge_exist <- melt(edges_round)
+df_edge_exist <- df_edge_exist[df_edge_exist$value != 0, ]
+
+pdf("part1_reviewer1_reply.pdf", onefile = TRUE)
+ggplot(df_edge_exist, aes(x = Var1, y = Var2)) +
+  geom_raster(aes(fill = value)) +
+  scale_fill_gradient(low = "lightcyan1", high = "darkcyan") +
+  labs(x = "is below", y = "is above") +
+  geom_text(aes(label = value)) +
+  theme(axis.text.x = element_text(size = 12, angle = 0, vjust = 0.3),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 13, vjust = -1),
+        axis.title.y = element_text(size = 13),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        plot.title = element_blank())
+dev.off()
+
+
+# now only the observed ones
+matrix_weight_depth_obs <- lapply(seq(1,length(depth_value_dupl)), FUN = function(x, values, mat) {mat[[x]]*values[x]}, values = depth_value_dupl, mat = list_mat_porders_ml)
+Reduce('+', matrix_weight_depth_obs)
+
+edges_obs <- Reduce('+', matrix_weight_depth_obs)
+edges_obs <- edges_obs / sum(depth_value_dupl)
+
+edges_round_obs <- round(edges_obs, 2)
+colnames(edges_round_obs) <- rownames(edges_round_obs) <- c("LR", "RF", "CART", "LASSO", "KNN")
+df_edge_exist_obs <- melt(edges_round_obs)
+df_edge_exist_obs <- df_edge_exist_obs[df_edge_exist_obs$value != 0, ]
+
+pdf("part1_reviewer1_reply_obs.pdf", onefile = TRUE)
+ggplot(df_edge_exist_obs, aes(x = Var1, y = Var2)) +
+  geom_raster(aes(fill = value)) +
+  scale_fill_gradient(low = "lightcyan1", high = "darkcyan") +
+  labs(x = "is below", y = "is above") +
+  geom_text(aes(label = value)) +
+  theme(axis.text.x = element_text(size = 12, angle = 0, vjust = 0.3),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 13, vjust = -1),
+        axis.title.y = element_text(size = 13),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        plot.title = element_blank())
+dev.off()
+
+
+
