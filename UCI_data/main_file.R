@@ -14,7 +14,7 @@
 # git. Installation can be done by:
 # remove.packages("ddandrda")
 # install.packages("devtools")
-# devtools::install_github("hannahblo/ddandrda")
+# devtools::install_github("hannahblo/ddandrda", ref = "version_before_nov24")
 library(ddandrda)
 
 ### Information on gurobi:
